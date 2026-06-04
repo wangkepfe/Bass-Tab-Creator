@@ -218,12 +218,15 @@
     opts = opts || {};
     var tuning = opts.tuning || STD_TUNING;
     var maxFret = opts.maxFret == null ? 24 : opts.maxFret;
+    var avoidOpen = !!opts.avoidOpen;   // funk muting: prefer fretted notes over open strings
     var W = Object.assign({
       travel: 1.0,        // cost per fret of hand movement between consecutive notes
       stringChange: 0.8,   // cost for changing strings
       stringSkip: 1.2,     // extra per skipped string (E->D etc.)
       height: 0.12,        // mild preference for lower frets (per fret)
-      openBonus: 0.6,      // reward using an open string
+      openBonus: 0.6,      // reward using an open string (when NOT avoiding open)
+      openPenalty: 6.0,    // cost of an open string when avoidOpen is on (soft: still
+                           // allowed when a note has no fretted alternative, e.g. low E)
       preferStr: 0.0       // (reserved)
     }, opts.weights || {});
 
@@ -235,7 +238,8 @@
     });
 
     function posCost(c) {
-      return c.fret * W.height - (c.fret === 0 ? W.openBonus : 0);
+      var openTerm = c.fret === 0 ? (avoidOpen ? W.openPenalty : -W.openBonus) : 0;
+      return c.fret * W.height + openTerm;
     }
     // hand reference fret for travel: open string doesn't pin the hand, so it
     // "inherits" the previous fretted position (handled by carrying refFret).
@@ -561,7 +565,7 @@
     });
     var fb = assignFingering(notes, {
       tuning: tuning, maxFret: settings.maxFret == null ? 24 : settings.maxFret,
-      weights: settings.weights
+      avoidOpen: settings.avoidOpen, weights: settings.weights
     });
     var rhythm = buildRhythm(notes, layout, song.ppq);
     var ergo = analyzeErgonomics(notes, fb.positions, song.ppq, ts,
