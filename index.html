@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bass Tab Creator</title>
+<style>
+  :root{
+    --bg:#0e1117; --panel:#161b22; --panel2:#1c2230; --line:#2b3240;
+    --ink:#e6edf3; --muted:#8b97a7; --accent:#4f9dff; --accent2:#7c5cff;
+    --easy:#3fb950; --med:#d4a72c; --hard:#f85149;
+    --string:#3a4452;
+    --mono:'Cascadia Mono','Consolas','SFMono-Regular',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  h1{font-size:18px;margin:0}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+  a{color:var(--accent)}
+  header{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:rgba(14,17,23,.92);backdrop-filter:blur(6px);z-index:20}
+  header .sub{color:var(--muted);font-size:12px}
+  .btn{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;
+    padding:6px 11px;cursor:pointer;font-size:13px}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#04122b;font-weight:600}
+  .btn.sm{padding:3px 8px;font-size:12px}
+  .wrap{display:grid;grid-template-columns:330px 1fr;gap:0;min-height:calc(100vh - 56px)}
+  .side{border-right:1px solid var(--line);padding:16px;overflow:auto;max-height:calc(100vh - 56px);position:sticky;top:56px}
+  .main{padding:18px 20px;overflow:auto}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  .field{margin-bottom:13px}
+  .field>label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  select,input[type=number]{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    border-radius:6px;padding:6px 8px;font-size:13px;width:100%}
+  input[type=number]{width:72px}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .hint.warn{color:var(--med)} .hint.bad{color:var(--hard)} .hint.good{color:var(--easy)}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:20px;
+    padding:2px 9px;font-size:11.5px;margin:2px 3px 0 0}
+  .kv{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:2px 0}
+  .kv span:first-child{color:var(--muted)}
+  .nudge{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin:6px 0}
+  .nudge .btn{padding:5px 0;text-align:center}
+  .badge-rating{display:inline-block;padding:4px 12px;border-radius:20px;font-weight:700;font-size:13px}
+  .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .seg button{flex:1;background:var(--panel2);color:var(--ink);border:0;border-right:1px solid var(--line);
+    padding:6px 0;cursor:pointer;font-size:13px}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--accent);color:#04122b;font-weight:700}
+  .tabwrap{overflow-x:auto;background:#0b0f15;border:1px solid var(--line);border-radius:10px;padding:10px}
+  .system{display:block;margin-bottom:6px}
+  pre.ascii{font-family:var(--mono);font-size:12px;line-height:1.35;white-space:pre;color:#cdd6e0;margin:0}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:4px}
+  .empty{color:var(--muted);text-align:center;padding:60px 20px}
+  .flagrow{font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--line)}
+  .flagrow:last-child{border:0}
+  details summary{cursor:pointer;color:var(--muted);font-size:12px}
+  .filebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  code.k{background:var(--panel2);padding:1px 5px;border-radius:4px;font-family:var(--mono);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎸 Bass Tab Creator</h1>
+  <span class="sub">MIDI → ergonomic bass tablature · standard tuning (E A D G)</span>
+  <span style="flex:1"></span>
+  <div class="filebar">
+    <input type="file" id="file" accept=".mid,.midi" style="display:none">
+    <button class="btn" id="loadBtn">Open MIDI…</button>
+    <button class="btn" id="exampleBtn">Load example</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- ============ CONTROLS ============ -->
+  <aside class="side">
+    <div class="card" id="infoCard">
+      <h2>Source file</h2>
+      <div id="info"><div class="hint">No file loaded. Click <b>Load example</b> or open a <code class="k">.mid</code>.</div></div>
+    </div>
+
+    <div class="card" id="ctrlCard" style="display:none">
+      <h2>Conversion settings</h2>
+      <div class="hint" style="margin-bottom:12px">Nothing is auto-applied — set each value explicitly. Hints below show what was detected.</div>
+
+      <div class="field">
+        <label>Quantization grid <span style="color:var(--muted)">(rhythmic resolution)</span></label>
+        <select id="grid">
+          <option value="0.25">1/4 note</option>
+          <option value="0.125">1/8 note</option>
+          <option value="0.0833333">1/8 triplet</option>
+          <option value="0.0625">1/16 note</option>
+          <option value="0.0416667">1/16 triplet</option>
+          <option value="0.03125">1/32 note</option>
+        </select>
+        <div class="hint" id="gridHint"></div>
+      </div>
+
+      <div class="field">
+        <label>Time signature</label>
+        <div class="row">
+          <input type="number" id="tsNum" min="1" max="32" step="1">
+          <span style="color:var(--muted);font-size:18px">/</span>
+          <input type="number" id="tsDen" min="1" max="32" step="1">
+          <span class="hint" id="tsHint" style="margin:0"></span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Tempo <span style="color:var(--muted)">(affects difficulty only, not layout)</span></label>
+        <div class="row">
+          <input type="number" id="bpm" min="20" max="320" step="1" placeholder="auto">
+          <span style="color:var(--muted);font-size:12px">BPM</span>
+          <span class="hint" id="bpmHint" style="margin:0"></span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Octave shift</label>
+        <div class="seg" id="octSeg">
+          <button data-v="-2">−2</button><button data-v="-1">−1</button>
+          <button data-v="0">0</button><button data-v="1">+1</button><button data-v="2">+2</button>
+        </div>
+        <div class="hint" id="octHint"></div>
+      </div>
+
+      <div class="field">
+        <label>Fine transpose (semitones)</label>
+        <div class="row">
+          <input type="number" id="semi" min="-12" max="12" step="1" value="0">
+          <span class="hint" style="margin:0">rarely needed; keeps tuning standard</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Timing shift <span style="color:var(--muted)">(fix pickup / lead-in)</span></label>
+        <div class="hint" id="shiftReadout" style="margin:0 0 4px"></div>
+        <div class="nudge">
+          <button class="btn sm" data-shift="bar:-1">−bar</button>
+          <button class="btn sm" data-shift="beat:-1">−beat</button>
+          <button class="btn sm" data-shift="step:-1">−grid</button>
+          <button class="btn sm" data-shift="step:1">+grid</button>
+          <button class="btn sm" data-shift="beat:1">+beat</button>
+          <button class="btn sm" data-shift="bar:1">+bar</button>
+        </div>
+        <div class="row">
+          <button class="btn sm" data-quick="trim">Trim lead bars</button>
+          <button class="btn sm" data-quick="snap">First note → 1·1</button>
+          <button class="btn sm" data-quick="reset">Reset</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Fretboard</label>
+        <div class="row">
+          <span class="hint" style="margin:0">frets</span>
+          <input type="number" id="maxFret" min="12" max="36" step="1" value="24">
+          <span class="hint" style="margin:0">tuning</span>
+          <span class="pill" id="tuningPill">E A D G</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Bars per line</label>
+        <input type="number" id="barsPerLine" min="1" max="8" step="1" value="4">
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ OUTPUT ============ -->
+  <main class="main" id="main">
+    <div class="empty" id="emptyState">
+      <h2 style="color:var(--muted)">Load a MIDI file to begin</h2>
+      <p class="hint">The tool will read tempo, time signature and note grid from the file, show you what it
+      found, and ask you to confirm the grid, octave and timing before rendering the tab.</p>
+    </div>
+
+    <div id="output" style="display:none">
+      <div class="card" id="ergoCard">
+        <h2>Ergonomic analysis</h2>
+        <div class="row" style="gap:18px;align-items:flex-start">
+          <div style="text-align:center;min-width:120px">
+            <div class="badge-rating" id="ratingBadge">—</div>
+            <div class="hint" id="scoreLine" style="margin-top:6px"></div>
+          </div>
+          <div style="flex:1;min-width:220px">
+            <div class="kv"><span>Notes</span><span id="mNotes"></span></div>
+            <div class="kv"><span>Fret range used</span><span id="mFret"></span></div>
+            <div class="kv"><span>Position shifts</span><span id="mShifts"></span></div>
+            <div class="kv"><span>Biggest fret jump</span><span id="mJump"></span></div>
+            <div class="kv"><span>Tempo · peak speed</span><span id="mTempo"></span></div>
+          </div>
+          <div style="flex:1.4;min-width:240px">
+            <div class="hint" style="margin-bottom:4px">Tricky spots</div>
+            <div id="flags"><div class="hint good">None flagged — comfortable throughout.</div></div>
+          </div>
+        </div>
+        <div id="unplayable"></div>
+      </div>
+
+      <div class="card">
+        <div class="row" style="justify-content:space-between">
+          <h2 style="margin:0">Tablature</h2>
+          <div class="row">
+            <label class="row" style="gap:5px;color:var(--muted);font-size:12px">
+              <input type="checkbox" id="showFingers" checked style="width:auto"> finger numbers
+            </label>
+          </div>
+        </div>
+        <div class="tabwrap" id="visual" style="margin-top:10px"></div>
+        <div class="legend" style="align-items:center">
+          <span><span class="dot" style="background:var(--easy)"></span>easy</span>
+          <span><span class="dot" style="background:var(--med)"></span>moderate</span>
+          <span><span class="dot" style="background:var(--hard)"></span>hard</span>
+          <span>· number above a note = fretting finger (1=index … 4=pinky)</span>
+        </div>
+        <div class="legend" style="align-items:center;margin-top:4px">
+          <span>Rhythm lane (below the staff):</span>
+          <svg width="430" height="46" viewBox="0 0 430 46" aria-label="rhythm key">
+            <g fill="#c2ccda" stroke="#c2ccda" font-family="-apple-system,Segoe UI,sans-serif">
+              <!-- whole -->
+              <ellipse cx="16" cy="16" rx="4.3" ry="3.1" fill="#0b0f15" stroke-width="1.4"/>
+              <!-- half --><line x1="58" y1="16" x2="58" y2="34" stroke-width="1.5"/>
+              <ellipse cx="58" cy="16" rx="4.3" ry="3.1" fill="#0b0f15" stroke-width="1.4"/>
+              <!-- quarter --><line x1="100" y1="16" x2="100" y2="34" stroke-width="1.5"/>
+              <ellipse cx="100" cy="16" rx="4.3" ry="3.1" stroke-width="1.4"/>
+              <!-- eighth --><line x1="146" y1="16" x2="146" y2="34" stroke-width="1.5"/>
+              <line x1="146" y1="34" x2="154" y2="31" stroke-width="2.3" stroke-linecap="round"/>
+              <ellipse cx="146" cy="16" rx="4.3" ry="3.1" stroke-width="1.4"/>
+              <!-- sixteenth --><line x1="196" y1="16" x2="196" y2="34" stroke-width="1.5"/>
+              <line x1="196" y1="34" x2="204" y2="31" stroke-width="2.3" stroke-linecap="round"/>
+              <line x1="196" y1="29" x2="204" y2="26" stroke-width="2.3" stroke-linecap="round"/>
+              <ellipse cx="196" cy="16" rx="4.3" ry="3.1" stroke-width="1.4"/>
+              <!-- quarter rest --><path d="M250 9 l5 6 l-5 5 l5 6" fill="none" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+              <!-- eighth rest --><line x1="299" y1="10" x2="293" y2="25" stroke-width="1.5"/>
+              <circle cx="298" cy="11" r="2.1"/><line x1="298" y1="11" x2="294" y2="14" stroke-width="1.3"/>
+              <g font-size="9" stroke="none" fill="#8b97a7">
+                <text x="16"  y="44" text-anchor="middle">whole</text>
+                <text x="58"  y="44" text-anchor="middle">half</text>
+                <text x="100" y="44" text-anchor="middle">¼</text>
+                <text x="146" y="44" text-anchor="middle">⅛</text>
+                <text x="196" y="44" text-anchor="middle">1/16</text>
+                <text x="252" y="44" text-anchor="middle">¼ rest</text>
+                <text x="300" y="44" text-anchor="middle">⅛ rest</text>
+              </g>
+              <text x="340" y="20" font-size="11" stroke="none" fill="#8b97a7">+ dot = dotted</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="example-midi.js"></script>
+<script src="bass-tab-core.js"></script>
+<script>
+/* ---------- app state ---------- */
+var state = { song:null, fileName:'', tickShift:0, octave:0 };
+
+/* ---------- helpers ---------- */
+function $(id){ return document.getElementById(id); }
+function b64ToBytes(b64){ var bin=atob(b64), a=new Uint8Array(bin.length); for(var i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i); return a; }
+function gridTicks(){ return Math.round(parseFloat($('grid').value)*4*state.song.ppq); } // value is in quarters? -> see note
+// NOTE: grid <option> values are fractions of a WHOLE note (1/4=0.25 ...). ticks = frac*4*ppq? no:
+//   a 1/4 note = ppq ticks; frac 0.25 of whole -> 0.25*(4*ppq)=ppq  ✓
+function timeSig(){ return { num:+$('tsNum').value||4, den:+$('tsDen').value||4 }; }
+function ticksPerBar(){ var ts=timeSig(); return state.song.ppq*4*ts.num/ts.den; }
+
+/* ---------- file loading ---------- */
+$('loadBtn').onclick=function(){ $('file').click(); };
+$('file').onchange=function(e){ var f=e.target.files[0]; if(!f)return;
+  var r=new FileReader(); r.onload=function(){ loadSong(new Uint8Array(r.result), f.name); }; r.readAsArrayBuffer(f); };
+$('exampleBtn').onclick=function(){
+  // Primary: load the real .mid asset shipped with the site.
+  // Fallback: the embedded base64 (so the page also works opened from file://).
+  fetch(encodeURI('assets/Too Many Kicks Bass.mid'))
+    .then(function(res){ if(!res.ok) throw new Error('HTTP '+res.status); return res.arrayBuffer(); })
+    .then(function(buf){ loadSong(new Uint8Array(buf), 'Too Many Kicks Bass.mid'); })
+    .catch(function(){
+      if(window.EXAMPLE_MIDI) loadSong(b64ToBytes(window.EXAMPLE_MIDI.b64), window.EXAMPLE_MIDI.name);
+      else alert('Could not load the example asset.');
+    });
+};
+
+function loadSong(bytes, name){
+  try{ state.song=BassTab.parseMidi(bytes); }
+  catch(err){ alert('Could not read MIDI:\n'+err.message); return; }
+  state.fileName=name; state.tickShift=0; state.octave=0;
+  initControls();
+  $('emptyState').style.display='none';
+  $('output').style.display='';
+  $('ctrlCard').style.display='';
+  recompute();
+}
+
+/* ---------- populate info + sensible (shown, not silently applied) defaults ---------- */
+function initControls(){
+  var s=state.song, ts=s.timeSigs[0]||{num:4,den:4};
+  var grid=BassTab.detectGrid(s.notes, s.ppq);
+  var ps=BassTab.pitchStats(s.notes);
+  var loc=BassTab.firstNoteLocation(s.notes, s.ppq, ts);
+
+  // info panel
+  var tempoStr=s.tempos.map(function(t){return t.bpm.toFixed(t.bpm%1?1:0)+' BPM'+(s.tempos.length>1?' @'+BassTab.tickToBarBeat(t.tick,s.ppq,ts).bar:'');}).join(', ');
+  $('info').innerHTML=
+    '<div class="kv"><span>File</span><span title="'+name_(state.fileName)+'">'+name_(state.fileName)+'</span></div>'+
+    '<div class="kv"><span>Tracks / format</span><span>'+s.ntracks+' / SMF-'+s.format+'</span></div>'+
+    (s.trackNames.length?'<div class="kv"><span>Names</span><span style="text-align:right">'+s.trackNames.map(esc).join('<br>')+'</span></div>':'')+
+    '<div class="kv"><span>PPQ</span><span>'+s.ppq+'</span></div>'+
+    '<div class="kv"><span>Tempo</span><span>'+tempoStr+'</span></div>'+
+    '<div class="kv"><span>Notes</span><span>'+s.notes.length+'</span></div>'+
+    '<div class="kv"><span>Pitch range</span><span>'+BassTab.pitchName(ps.min)+' – '+BassTab.pitchName(ps.max)+'</span></div>'+
+    '<div class="kv"><span>First note</span><span>bar '+loc.bar+', beat '+fmt(loc.beat)+'</span></div>';
+
+  // time sig defaults from file
+  $('tsNum').value=ts.num; $('tsDen').value=ts.den;
+  $('tsHint').textContent='from file';
+
+  // tempo: leave override blank => use file's tempo map; show what the file has
+  $('bpm').value='';
+  var fileBpm = s.tempos.length>1
+    ? s.tempos.map(function(t){return Math.round(t.bpm);}).join('→')+' BPM (map)'
+    : Math.round((s.tempos[0]||{bpm:120}).bpm)+' BPM';
+  $('bpmHint').textContent='file: '+fileBpm;
+
+  // grid default = detected onset grid; hint mentions finest
+  selectClosestGrid(grid.onsetTicks, s.ppq);
+  $('gridHint').innerHTML='detected: onsets align to <b>'+(grid.onsetLabel||'?')+'</b>'+
+    (grid.finestTicks&&grid.finestTicks!==grid.onsetTicks?' · finest event '+grid.finestLabel+' (short notes)':'');
+
+  // octave recommendation (shown; user still chooses)
+  var rec=recommendOctave(s, ps, +$('maxFret').value);
+  state.octave=rec.octave;
+  setOctaveSeg(rec.octave);
+
+  state.tickShift=0;
+}
+function name_(n){return n||'';}
+function esc(s){return String(s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+function fmt(x){return (Math.round(x*100)/100).toString();}
+
+function selectClosestGrid(ticks, ppq){
+  if(!ticks){ $('grid').value='0.0625'; return; }
+  var opts=$('grid').options, best=null, bd=1e9;
+  for(var i=0;i<opts.length;i++){ var t=parseFloat(opts[i].value)*4*ppq; var d=Math.abs(t-ticks);
+    if(d<bd){bd=d;best=opts[i].value;} }
+  $('grid').value=best;
+}
+
+function recommendOctave(song, ps, maxFret){
+  // pick the octave shift (−2..+2) that keeps every note playable while
+  // minimising the highest fret used (i.e. sits the line low on the neck).
+  var best={octave:0, maxFret:1e9, ok:false};
+  function lowestFret(p){ var ch=BassTab.fretChoices(p,BassTab.STD_TUNING,maxFret);
+    return ch.length? Math.min.apply(null,ch.map(function(c){return c.fret;})) : null; }
+  for(var o=-2;o<=2;o++){
+    var loF=lowestFret(ps.min+12*o), hiF=lowestFret(ps.max+12*o);
+    if(loF===null||hiF===null) continue;            // some note off the fretboard at this octave
+    if(!best.ok || hiF<best.maxFret){ best={octave:o, maxFret:hiF, ok:true}; }
+  }
+  return best;
+}
+
+/* ---------- octave segmented control ---------- */
+function setOctaveSeg(v){
+  state.octave=v;
+  Array.prototype.forEach.call($('octSeg').children,function(b){ b.classList.toggle('on', +b.dataset.v===v); });
+}
+$('octSeg').onclick=function(e){ if(e.target.dataset.v!=null){ setOctaveSeg(+e.target.dataset.v); recompute(); } };
+
+/* ---------- timing nudges ---------- */
+document.querySelectorAll('[data-shift]').forEach(function(b){
+  b.onclick=function(){
+    var p=b.dataset.shift.split(':'), n=+p[1];
+    var unit = p[0]==='bar'?ticksPerBar() : p[0]==='beat'?(state.song.ppq*4/timeSig().den) : gridTicks();
+    state.tickShift += n*unit; recompute();
+  };
+});
+document.querySelectorAll('[data-quick]').forEach(function(b){
+  b.onclick=function(){
+    var s=state.song, ts=timeSig(), tpb=ticksPerBar(), first=s.notes.length?s.notes[0].start:0;
+    if(b.dataset.quick==='trim')  state.tickShift = -(Math.floor(first/tpb)*tpb);
+    if(b.dataset.quick==='snap')  state.tickShift = -first;
+    if(b.dataset.quick==='reset') state.tickShift = 0;
+    recompute();
+  };
+});
+
+/* ---------- live recompute on any control ---------- */
+['grid','tsNum','tsDen','semi','maxFret','barsPerLine','showFingers','bpm'].forEach(function(id){
+  $(id).addEventListener('change', recompute);
+});
+
+/* ---------- the pipeline ---------- */
+var lastResult=null;
+function recompute(){
+  if(!state.song) return;
+  var ts=timeSig();
+  var settings={
+    octaveShift: state.octave,
+    semitoneShift:+$('semi').value||0,
+    tickShift: state.tickShift,
+    gridTicks: gridTicks(),
+    timeSig: ts,
+    maxFret:+$('maxFret').value||24,
+    barsPerLine:+$('barsPerLine').value||4,
+    bpmOverride:+$('bpm').value||0
+  };
+  var r=BassTab.convert(state.song, settings);
+  lastResult=r;
+
+  // octave hint (live mapping readout)
+  updateOctaveHint(r, settings);
+  updateShiftReadout(settings);
+
+  renderErgo(r);
+  renderVisual(r, settings);
+}
+
+function updateOctaveHint(r, settings){
+  var ps=BassTab.pitchStats(r.notes);
+  function describe(p){ var ch=BassTab.fretChoices(p,r.tuning,settings.maxFret);
+    if(!ch.length) return BassTab.pitchName(p)+' UNPLAYABLE';
+    var c=ch.reduce(function(a,b){return b.fret<a.fret?b:a;});
+    return BassTab.pitchName(p)+' → '+r.tuning[c.string].name+'-string fret '+c.fret; }
+  var un=r.fingering.unplayable.length;
+  var rec=recommendOctave(state.song, BassTab.pitchStats(state.song.notes), settings.maxFret);
+  var cls = un? 'bad' : (r.ergo.maxFret>15?'warn':'good');
+  $('octHint').className='hint '+cls;
+  $('octHint').innerHTML =
+    'low '+describe(ps.min)+' · high '+describe(ps.max)+
+    (un?(' · <b>'+un+' note(s) unplayable</b>'):'')+
+    (rec.octave!==state.octave?(' · suggested: <b>'+(rec.octave>0?'+':'')+rec.octave+' oct</b>'):' · good fit ✓');
+}
+
+function updateShiftReadout(settings){
+  var s=state.song, ts=settings.timeSig;
+  var first=s.notes.length? s.notes[0].start+settings.tickShift : 0;
+  var loc=BassTab.tickToBarBeat(Math.max(0,first), s.ppq, ts);
+  var bars=settings.tickShift/ticksPerBar();
+  $('shiftReadout').innerHTML='shift '+(settings.tickShift>=0?'+':'')+settings.tickShift+' ticks ('+
+    fmt(bars)+' bars) · first note now at <b>bar '+loc.bar+', beat '+fmt(loc.beat)+'</b>';
+}
+
+/* ---------- ergonomic report ---------- */
+function renderErgo(r){
+  var e=r.ergo, colors={Easy:'var(--easy)',Moderate:'var(--med)',Challenging:'var(--med)',Hard:'var(--hard)'};
+  var rb=$('ratingBadge'); rb.textContent=e.rating;
+  rb.style.background=colors[e.rating]||'var(--muted)'; rb.style.color='#04122b';
+  $('scoreLine').textContent='difficulty '+e.score+'/100';
+  $('mNotes').textContent=e.noteCount;
+  $('mFret').textContent=(e.minFret===e.maxFret?e.maxFret:e.minFret+'–'+e.maxFret)+' ('+(e.maxFret<=5?'open position':e.maxFret<=12?'lower neck':'upper neck')+')';
+  $('mShifts').textContent=e.positionShifts;
+  $('mJump').textContent=e.biggestJump+' frets'+(e.biggestJumpAt?' @ bar '+e.biggestJumpAt.bar+'·'+fmt(e.biggestJumpAt.beat):'');
+  $('mTempo').textContent=e.tempoUsed+' BPM · '+e.peakRate+' notes/s';
+
+  var f=$('flags');
+  if(!e.fastShifts.length){ f.innerHTML='<div class="hint good">None flagged — comfortable throughout.</div>'; }
+  else{
+    f.innerHTML=e.fastShifts.slice(0,8).map(function(x){
+      return '<div class="flagrow">⚡ jump '+x.from+'→'+x.to+' fret ('+x.jump+') in '+x.ms+'ms at <b>bar '+x.loc.bar+'·'+fmt(x.loc.beat)+'</b></div>';
+    }).join('')+(e.fastShifts.length>8?'<div class="hint">+'+(e.fastShifts.length-8)+' more…</div>':'');
+  }
+  var up=$('unplayable');
+  if(r.fingering.unplayable.length){
+    up.innerHTML='<div class="hint bad" style="margin-top:10px">⚠ '+r.fingering.unplayable.length+
+      ' note(s) fall outside the fretboard — adjust octave or fret count.</div>';
+  } else up.innerHTML='';
+}
+
+/* ---------- visual SVG tab ---------- */
+var DIFF={easy:{fill:'#16331f',stroke:'#3fb950',text:'#9ff0ad'},
+          med:{fill:'#332a12',stroke:'#d4a72c',text:'#f3d795'},
+          hard:{fill:'#3a161a',stroke:'#f85149',text:'#ffb0ad'}};
+function renderVisual(r, settings){
+  var s=state.song, ts=settings.timeSig, tuning=r.tuning;
+  var cols=r.layout.columns, spb=r.layout.stepsPerBar;
+  var totalBars=cols.length?cols[cols.length-1].bar+1:0;
+  var grid=settings.gridTicks;
+  var origin=0; // notes already shifted; layout origin is 0
+
+  // per-note column + end column
+  var noteCol={}, noteEndCol={};
+  cols.forEach(function(c){ c.noteIdx.forEach(function(i){ noteCol[i]=c.col; }); });
+  r.notes.forEach(function(n,i){ noteEndCol[i]=Math.max((noteCol[i]||0)+1, Math.round((n.end)/grid)); });
+
+  var colsPerBeat=Math.max(1, Math.round((s.ppq*4/ts.den)/grid));
+  var colW=Math.max(13, Math.round(58/colsPerBeat));
+  var rowH=28, topPad=30, leftPad=26, badgeW=20, badgeH=18, nS=tuning.length;
+  var barsPerSys=settings.barsPerLine;
+  var showFing=$('showFingers').checked;
+  var diffArr=r.ergo.perNoteDifficulty;
+
+  function yOf(strIdx){ return topPad + (nS-1-strIdx)*rowH + rowH/2; }
+  var eLineY=yOf(0);                       // bottom string line
+  var rhyHeadY=topPad+nS*rowH+14;          // notehead row of the rhythm lane
+  var stemBottom=rhyHeadY+16;
+  var H=stemBottom+12;
+  var RINK='#c2ccda';                      // rhythm ink (neutral)
+
+  // --- rhythm glyph builders (x = column centre) ---
+  function noteGlyph(x,val){
+    var d=val.d, g='', filled=d>=4, flags=(d===8?1:d===16?2:d===32?3:0);
+    if(d>=2) g+='<line x1="'+x+'" y1="'+rhyHeadY+'" x2="'+x+'" y2="'+stemBottom+'" stroke="'+RINK+'" stroke-width="1.5"/>';
+    for(var f=0;f<flags;f++){ var yb=stemBottom-f*5;
+      g+='<line x1="'+x+'" y1="'+yb+'" x2="'+(x+8)+'" y2="'+(yb-3)+'" stroke="'+RINK+'" stroke-width="2.3" stroke-linecap="round"/>'; }
+    g+='<ellipse cx="'+x+'" cy="'+rhyHeadY+'" rx="4.3" ry="3.1" fill="'+(filled?RINK:'#0b0f15')+'" stroke="'+RINK+'" stroke-width="1.4"/>';
+    if(val.dotted) g+='<circle cx="'+(x+8)+'" cy="'+rhyHeadY+'" r="1.5" fill="'+RINK+'"/>';
+    return g;
+  }
+  function restGlyph(cx,val){
+    var d=val.d, g='', y=rhyHeadY;
+    if(d===1)      g+='<rect x="'+(cx-5)+'" y="'+y+'" width="10" height="4" fill="'+RINK+'"/>';           // whole: hangs
+    else if(d===2) g+='<rect x="'+(cx-5)+'" y="'+(y-4)+'" width="10" height="4" fill="'+RINK+'"/>';        // half: sits
+    else if(d===4) g+='<path d="M'+(cx-3)+' '+(y-7)+' l5 6 l-5 5 l5 6" fill="none" stroke="'+RINK+'" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>'; // quarter zigzag
+    else{                                                                                                  // 8th/16th/32nd
+      var flags=(d===8?1:d===16?2:3);
+      g+='<line x1="'+(cx+3)+'" y1="'+(y-6)+'" x2="'+(cx-3)+'" y2="'+(y+9)+'" stroke="'+RINK+'" stroke-width="1.5"/>';
+      for(var k=0;k<flags;k++){ var by=y-5+k*5;
+        g+='<circle cx="'+(cx+2)+'" cy="'+by+'" r="2.1" fill="'+RINK+'"/>';
+        g+='<line x1="'+(cx+2)+'" y1="'+by+'" x2="'+(cx-2)+'" y2="'+(by+3)+'" stroke="'+RINK+'" stroke-width="1.3"/>'; }
+    }
+    if(val.dotted) g+='<circle cx="'+(cx+8)+'" cy="'+y+'" r="1.5" fill="'+RINK+'"/>';
+    return g;
+  }
+
+  var html='';
+  for(var b0=0;b0<totalBars;b0+=barsPerSys){
+    var b1=Math.min(b0+barsPerSys,totalBars);
+    var startCol=b0*spb, endCol=b1*spb;
+    var W=leftPad+(endCol-startCol)*colW+12;
+    function X(col){ return leftPad+(col-startCol)*colW; }
+    var svg='<svg class="system" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'">';
+
+    // gridlines: bar lines run through the rhythm lane, beat lines stop at the staff
+    for(var c=startCol;c<=endCol;c++){
+      if(c%colsPerBeat===0){
+        var isBar=(c%spb===0);
+        svg+='<line x1="'+X(c)+'" y1="'+(topPad-(isBar?14:6))+'" x2="'+X(c)+'" y2="'+(isBar?stemBottom+2:eLineY)+
+             '" stroke="'+(isBar?'#48566a':'#222a36')+'" stroke-width="'+(isBar?1.4:1)+'"/>';
+      }
+    }
+    // faint rhythm reference line (rest positioning)
+    svg+='<line x1="'+leftPad+'" y1="'+rhyHeadY+'" x2="'+(W-6)+'" y2="'+rhyHeadY+'" stroke="#1d2430" stroke-width="1"/>';
+    // string lines + names
+    for(var si=nS-1;si>=0;si--){
+      var y=yOf(si);
+      svg+='<line x1="'+leftPad+'" y1="'+y+'" x2="'+(W-6)+'" y2="'+y+'" stroke="var(--string)" stroke-width="1"/>';
+      svg+='<text x="6" y="'+(y+4)+'" fill="#9aa6b5" font-family="monospace" font-size="12">'+tuning[si].name+'</text>';
+    }
+    // bar numbers
+    for(var bb=b0;bb<b1;bb++)
+      svg+='<text x="'+(X(bb*spb)+3)+'" y="14" fill="#7d8aa0" font-size="11" font-family="monospace">'+(bb+1)+'</text>';
+
+    // fret badges (onset in this system)
+    r.notes.forEach(function(n,i){
+      var col=noteCol[i]; if(col==null||col<startCol||col>=endCol) return;
+      var p=r.fingering.positions[i]; if(!p) return;
+      var d=DIFF[diffArr[i]||'easy'], x=X(col), y=yOf(p.string);
+      var ec=Math.min(noteEndCol[i],endCol);
+      if(ec>col){ svg+='<line x1="'+(x+badgeW/2-2)+'" y1="'+y+'" x2="'+(X(ec)-2)+'" y2="'+y+'" stroke="'+d.stroke+'" stroke-opacity=".5" stroke-width="2"/>'; }
+      svg+='<rect x="'+(x-badgeW/2)+'" y="'+(y-badgeH/2)+'" width="'+badgeW+'" height="'+badgeH+'" rx="5" fill="'+d.fill+'" stroke="'+d.stroke+'" stroke-width="1.3"/>';
+      svg+='<text x="'+x+'" y="'+(y+4)+'" text-anchor="middle" fill="'+d.text+'" font-family="monospace" font-size="12" font-weight="700">'+p.fret+'</text>';
+      if(showFing && p.finger>0)
+        svg+='<text x="'+(x+badgeW/2+1)+'" y="'+(y-badgeH/2+2)+'" fill="#cbd5e1" font-size="9" font-family="monospace">'+p.finger+'</text>';
+    });
+
+    // rhythm lane: note stems/flags + rests, aligned under the tab
+    r.rhythm.forEach(function(e){
+      if(e.startCol<startCol || e.startCol>=endCol) return;
+      if(e.kind==='note') svg+=noteGlyph(X(e.startCol), e.value);
+      else svg+=restGlyph(X(e.startCol)+(e.steps-1)*colW/2, e.value);
+    });
+
+    svg+='</svg>';
+    html+=svg;
+  }
+  $('visual').innerHTML=html||'<div class="hint">No notes to display.</div>';
+}
+</script>
+</body>
+</html>

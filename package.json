@@ -1,0 +1,11 @@
+{
+  "name": "bass-tab-creator",
+  "version": "1.0.0",
+  "description": "Convert a MIDI file into ergonomic bass guitar tablature with traditional rhythm notation. Zero-dependency static site.",
+  "scripts": {
+    "dev": "python -m http.server 8777",
+    "test": "node test-core.js"
+  },
+  "keywords": ["midi", "bass", "tablature", "tab", "music"],
+  "homepage": "https://github.com/wangkepfe/Bass-Tab-Creator"
+}
