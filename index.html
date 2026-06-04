@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1117">
+<meta name="color-scheme" content="dark">
 <title>Bass Tab Creator</title>
 <style>
   :root{
@@ -61,23 +63,92 @@
   details summary{cursor:pointer;color:var(--muted);font-size:12px}
   .filebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   code.k{background:var(--panel2);padding:1px 5px;border-radius:4px;font-family:var(--mono);font-size:12px}
+  #visual g.note{cursor:pointer}
+  #visual g.note:hover rect{filter:brightness(1.4)}
+  #visual g.note:active rect{filter:brightness(1.7)}
+
+  /* ---------- responsive helpers (used by the mobile layout below) ---------- */
+  .icon-btn{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;
+    height:38px;min-width:40px;display:inline-flex;align-items:center;justify-content:center;
+    font-size:18px;line-height:1;cursor:pointer;padding:0}
+  .icon-btn:hover{border-color:var(--accent)}
+  .drawer-toggle{display:none}            /* hamburger — shown only on small screens */
+  .drawer-head{display:none}              /* drawer title bar — shown only inside the mobile drawer */
+  .lbl-m{display:none}                    /* compact mobile-only label text */
+  .backdrop{position:fixed;inset:0;background:rgba(2,5,11,.6);opacity:0;visibility:hidden;
+    transition:opacity .25s ease,visibility .25s ease;z-index:55;-webkit-tap-highlight-color:transparent}
+
+  /* ============ MOBILE ============ */
+  @media (max-width:760px){
+    header{gap:9px;padding:9px max(12px,env(safe-area-inset-right)) 9px max(12px,env(safe-area-inset-left))}
+    h1{font-size:16px;white-space:nowrap}
+    header .sub{display:none}
+    .lbl-d{display:none}
+    .lbl-m{display:inline}
+    .drawer-toggle{display:inline-flex}
+
+    /* single column — the tab gets the full width */
+    .wrap{display:block;min-height:0}
+    .main{padding:14px max(12px,env(safe-area-inset-right)) 24px max(12px,env(safe-area-inset-left));overflow:visible}
+    .card{padding:12px}
+
+    /* controls slide in from the left as an off-canvas drawer */
+    .side{position:fixed;top:0;left:0;z-index:60;width:min(88vw,340px);
+      height:100vh;height:100dvh;max-height:none;border-right:1px solid var(--line);
+      padding:0 16px max(16px,env(safe-area-inset-bottom));overflow-y:auto;-webkit-overflow-scrolling:touch;
+      transform:translateX(-100%)}
+    /* gate the slide transition until after first paint so the drawer doesn't flash in on load/resize */
+    body.ui-ready .side{transition:transform .26s cubic-bezier(.4,0,.2,1)}
+    body.drawer-open .side{transform:none;box-shadow:8px 0 34px rgba(0,0,0,.55)}
+    body.drawer-open .backdrop{opacity:1;visibility:visible}
+    body.drawer-open{overflow:hidden}
+
+    .drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+      position:sticky;top:0;z-index:2;margin:0 -16px 12px;
+      padding:calc(12px + env(safe-area-inset-top)) 16px 12px;
+      background:var(--panel);border-bottom:1px solid var(--line)}
+    .drawer-title{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+
+    /* touch-friendly control sizing */
+    .btn{padding:10px 13px;font-size:14px}
+    .btn.sm{padding:9px 8px;font-size:13px}
+    select,input[type=number]{padding:10px;font-size:16px}   /* 16px stops iOS zooming on focus */
+    .seg button{padding:11px 0;font-size:14px}
+    .nudge{gap:6px}
+    .nudge .btn{padding:11px 0}
+
+    /* ergonomic analysis stacks into one readable column */
+    #ergoCard>.row{flex-direction:column;gap:14px}
+    #ergoCard>.row>div{min-width:0 !important;width:100%}
+
+    /* keep wide SVGs from forcing a page-wide horizontal scroll */
+    .legend svg{max-width:100%;height:auto}
+    /* suppress the iOS long-press callout so long-press can reset a note */
+    #visual{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>🎸 Bass Tab Creator</h1>
+  <button class="icon-btn drawer-toggle" id="drawerToggle" aria-label="Show controls" aria-expanded="false" aria-controls="sidePanel">⚙</button>
+  <h1>🎸 Bass Tab<span class="lbl-d"> Creator</span></h1>
   <span class="sub">MIDI → ergonomic bass tablature · standard tuning (E A D G)</span>
   <span style="flex:1"></span>
   <div class="filebar">
     <input type="file" id="file" accept=".mid,.midi" style="display:none">
-    <button class="btn" id="loadBtn">Open MIDI…</button>
-    <button class="btn" id="exampleBtn">Load example</button>
+    <button class="btn" id="loadBtn"><span class="lbl-d">Open MIDI…</span><span class="lbl-m">Open</span></button>
+    <button class="btn" id="exampleBtn"><span class="lbl-d">Load example</span><span class="lbl-m">Example</span></button>
   </div>
 </header>
 
+<div class="backdrop" id="backdrop"></div>
 <div class="wrap">
   <!-- ============ CONTROLS ============ -->
-  <aside class="side">
+  <aside class="side" id="sidePanel">
+    <div class="drawer-head">
+      <span class="drawer-title">Controls</span>
+      <button class="icon-btn" id="drawerClose" aria-label="Hide controls">✕</button>
+    </div>
     <div class="card" id="infoCard">
       <h2>Source file</h2>
       <div id="info"><div class="hint">No file loaded. Click <b>Load example</b> or open a <code class="k">.mid</code>.</div></div>
@@ -228,6 +299,11 @@
           <span>· number above a note = fretting finger (1=index … 4=pinky)</span>
         </div>
         <div class="legend" style="align-items:center;margin-top:4px">
+          <span><b><span class="lbl-d">Click</span><span class="lbl-m">Tap</span> a note</b> to move it to another string/fret that plays the same pitch (loops through all options).</span>
+          <span><span class="dot" style="background:var(--accent2)"></span>manually moved — <b><span class="lbl-d">right-click</span><span class="lbl-m">long-press</span></b> to reset</span>
+          <span>· edits auto-save in this browser, per MIDI file.</span>
+        </div>
+        <div class="legend" style="align-items:center;margin-top:4px">
           <span>Rhythm lane (below the staff):</span>
           <svg width="430" height="46" viewBox="0 0 430 46" aria-label="rhythm key">
             <g fill="#c2ccda" stroke="#c2ccda" font-family="-apple-system,Segoe UI,sans-serif">
@@ -269,7 +345,7 @@
 <script src="bass-tab-core.js"></script>
 <script>
 /* ---------- app state ---------- */
-var state = { song:null, fileName:'', tickShift:0, octave:0 };
+var state = { song:null, fileName:'', tickShift:0, octave:0, overrides:{} };
 
 /* ---------- helpers ---------- */
 function $(id){ return document.getElementById(id); }
@@ -299,8 +375,9 @@ $('exampleBtn').onclick=function(){
 function loadSong(bytes, name){
   try{ state.song=BassTab.parseMidi(bytes); }
   catch(err){ alert('Could not read MIDI:\n'+err.message); return; }
-  state.fileName=name; state.tickShift=0; state.octave=0;
-  initControls();
+  state.fileName=name; state.tickShift=0; state.octave=0; state.overrides={};
+  initControls();        // detected defaults shown first…
+  restoreState();        // …then overlaid with any saved edits for this MIDI name
   $('emptyState').style.display='none';
   $('output').style.display='';
   $('ctrlCard').style.display='';
@@ -409,6 +486,105 @@ document.querySelectorAll('[data-quick]').forEach(function(b){
   $(id).addEventListener('change', recompute);
 });
 
+/* ---------- clickable notes: cycle through same-pitch fretboard positions ----
+   Left-click  → next position (string/fret) that sounds the same pitch, looping.
+   Right-click → drop the manual override, returning to the auto-chosen position. */
+function cycleNote(i){
+  var r=lastResult; if(!r||!r.notes[i]) return;
+  var choices=BassTab.fretChoices(r.notes[i].pitch, r.tuning, +$('maxFret').value||24);
+  if(choices.length<2) return;                       // nothing to loop through
+  var cur=r.fingering.positions[i], curIdx=0;
+  for(var k=0;k<choices.length;k++)
+    if(cur && choices[k].string===cur.string && choices[k].fret===cur.fret){ curIdx=k; break; }
+  var nx=choices[(curIdx+1)%choices.length];
+  state.overrides[r.noteKeys[i]]={string:nx.string, fret:nx.fret};
+  recompute();                                       // re-fingers + autosaves
+}
+function resetNote(i){
+  var r=lastResult; if(!r) return;
+  var key=r.noteKeys[i];
+  if(state.overrides[key]){ delete state.overrides[key]; recompute(); }
+}
+$('visual').addEventListener('click', function(e){
+  var g=e.target.closest && e.target.closest('g[data-note]'); if(!g) return;
+  cycleNote(+g.getAttribute('data-note'));
+});
+$('visual').addEventListener('contextmenu', function(e){
+  var g=e.target.closest && e.target.closest('g[data-note]'); if(!g) return;
+  e.preventDefault(); resetNote(+g.getAttribute('data-note'));
+});
+/* touch: there is no right-click, so a long-press resets a note (matches contextmenu) */
+(function(){
+  var vis=$('visual'), timer=null, sx=0, sy=0, fired=false;
+  function cancel(){ if(timer){ clearTimeout(timer); timer=null; } }
+  vis.addEventListener('touchstart', function(e){
+    var g=e.target.closest && e.target.closest('g[data-note]'); if(!g){ cancel(); return; }
+    var t=e.touches[0]; sx=t.clientX; sy=t.clientY; fired=false;
+    var i=+g.getAttribute('data-note');
+    cancel(); timer=setTimeout(function(){ fired=true; resetNote(i); }, 550);
+  }, {passive:true});
+  vis.addEventListener('touchmove', function(e){
+    if(!timer) return; var t=e.touches[0];
+    if(Math.abs(t.clientX-sx)>10 || Math.abs(t.clientY-sy)>10) cancel();  // it's a scroll, not a press
+  }, {passive:true});
+  vis.addEventListener('touchend', cancel, {passive:true});
+  vis.addEventListener('touchcancel', cancel, {passive:true});
+  // swallow the click that trails a long-press so it doesn't also cycle the note
+  vis.addEventListener('click', function(e){ if(fired){ fired=false; e.stopPropagation(); e.preventDefault(); } }, true);
+})();
+
+/* ---------- mobile controls drawer ---------- */
+(function(){
+  var body=document.body, tgl=$('drawerToggle');
+  function set(open){ body.classList.toggle('drawer-open', open); tgl.setAttribute('aria-expanded', open?'true':'false'); }
+  tgl.addEventListener('click', function(){ set(!body.classList.contains('drawer-open')); });
+  $('drawerClose').addEventListener('click', function(){ set(false); });
+  $('backdrop').addEventListener('click', function(){ set(false); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') set(false); });
+  // enable slide transitions only after the first paint settles (avoids load/resize flash)
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ body.classList.add('ui-ready'); }); });
+})();
+
+/* ---------- autosave: persist edits in localStorage, keyed by MIDI file name ---
+   Stores the conversion settings + manual position overrides so reopening the
+   same file restores your working state. (Octave is saved alongside overrides
+   because an override is only meaningful against the pitch its octave produces.) */
+var STORE_KEY='bassTabCreator.v1';
+function loadStore(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY))||{}; }catch(e){ return {}; } }
+function saveStore(o){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(o)); }catch(e){} }
+function saveState(){
+  if(!state.song || !state.fileName) return;
+  var store=loadStore();
+  store[state.fileName]={
+    v:1, savedAt:Date.now(),
+    settings:{
+      octave:state.octave, tickShift:state.tickShift,
+      grid:$('grid').value, tsNum:+$('tsNum').value, tsDen:+$('tsDen').value,
+      semi:+$('semi').value, maxFret:+$('maxFret').value, barsPerLine:+$('barsPerLine').value,
+      bpm:$('bpm').value, avoidOpen:$('avoidOpen').checked, showFingers:$('showFingers').checked
+    },
+    overrides:state.overrides
+  };
+  saveStore(store);
+}
+function restoreState(){
+  var saved=loadStore()[state.fileName]; if(!saved) return false;
+  var s=saved.settings||{};
+  if(s.grid!=null)        $('grid').value=s.grid;
+  if(s.tsNum!=null)       $('tsNum').value=s.tsNum;
+  if(s.tsDen!=null)       $('tsDen').value=s.tsDen;
+  if(s.semi!=null)        $('semi').value=s.semi;
+  if(s.maxFret!=null)     $('maxFret').value=s.maxFret;
+  if(s.barsPerLine!=null) $('barsPerLine').value=s.barsPerLine;
+  if(s.bpm!=null)         $('bpm').value=s.bpm;
+  if(s.avoidOpen!=null)   $('avoidOpen').checked=!!s.avoidOpen;
+  if(s.showFingers!=null) $('showFingers').checked=!!s.showFingers;
+  if(s.octave!=null)      setOctaveSeg(s.octave);
+  if(s.tickShift!=null)   state.tickShift=s.tickShift;
+  state.overrides=saved.overrides||{};
+  return true;
+}
+
 /* ---------- the pipeline ---------- */
 var lastResult=null;
 function recompute(){
@@ -423,7 +599,8 @@ function recompute(){
     maxFret:+$('maxFret').value||24,
     barsPerLine:+$('barsPerLine').value||4,
     bpmOverride:+$('bpm').value||0,
-    avoidOpen:$('avoidOpen').checked
+    avoidOpen:$('avoidOpen').checked,
+    overrides:state.overrides
   };
   var r=BassTab.convert(state.song, settings);
   lastResult=r;
@@ -435,6 +612,7 @@ function recompute(){
 
   renderErgo(r);
   renderVisual(r, settings);
+  saveState();   // single capture point: every control / nudge / note edit funnels through here
 }
 
 function updateAvoidOpenHint(r, settings){
@@ -532,6 +710,13 @@ function renderVisual(r, settings){
   var showFing=$('showFingers').checked;
   var diffArr=r.ergo.perNoteDifficulty;
 
+  // per-note: how many fretboard positions sound this pitch, and is it user-pinned?
+  var altCount={}, isOverridden={};
+  r.notes.forEach(function(n,i){
+    altCount[i]=BassTab.fretChoices(n.pitch, tuning, settings.maxFret).length;
+    isOverridden[i]=!!state.overrides[r.noteKeys[i]];
+  });
+
   function yOf(strIdx){ return topPad + (nS-1-strIdx)*rowH + rowH/2; }
   var eLineY=yOf(0);                       // bottom string line
   var rhyHeadY=topPad+nS*rowH+14;          // notehead row of the rhythm lane
@@ -600,10 +785,16 @@ function renderVisual(r, settings){
       var d=DIFF[diffArr[i]||'easy'], y=yOf(p.string);
       var x0=X(col), x1=X(Math.min(noteEndCol[i],endCol));
       var w=Math.max(x1-x0, p.fret>=10?17:13);          // honour duration; floor width so the number stays legible
-      svg+='<rect x="'+x0+'" y="'+(y-badgeH/2)+'" width="'+w+'" height="'+badgeH+'" rx="4" fill="'+d.fill+'" stroke="'+d.stroke+'" stroke-width="1.3"/>';
+      var cyc=altCount[i]>1, ov=isOverridden[i];
+      var tip=BassTab.pitchName(n.pitch)+(cyc?' · '+altCount[i]+' positions — click to cycle':' · only position')+(ov?' · manual (right-click to reset)':'');
+      svg+='<g data-note="'+i+'"'+(cyc?' class="note"':'')+'><title>'+tip+'</title>';
+      svg+='<rect x="'+x0+'" y="'+(y-badgeH/2)+'" width="'+w+'" height="'+badgeH+'" rx="4" fill="'+d.fill+'" stroke="'+(ov?'var(--accent2)':d.stroke)+'" stroke-width="'+(ov?1.8:1.3)+'"/>';
       svg+='<text x="'+(x0+w/2)+'" y="'+(y+4)+'" text-anchor="middle" fill="'+d.text+'" font-family="monospace" font-size="12" font-weight="700">'+p.fret+'</text>';
       if(showFing && p.finger>0)
         svg+='<text x="'+(x0+2)+'" y="'+(y-badgeH/2-2)+'" fill="#9fb0c4" font-size="9" font-family="monospace">'+p.finger+'</text>';
+      if(ov)
+        svg+='<circle cx="'+(x0+w-2.6)+'" cy="'+(y-badgeH/2+2.6)+'" r="2.6" fill="var(--accent2)" stroke="#0b0f15" stroke-width="0.8"/>';
+      svg+='</g>';
     });
 
     // rhythm lane: note stems/flags + rests, nudged a few px right of the grid

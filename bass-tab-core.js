@@ -230,10 +230,17 @@
       preferStr: 0.0       // (reserved)
     }, opts.weights || {});
 
+    var forced = opts.forced || {};   // noteIndex -> {string,fret} pinned by the user
+
     var unplayable = [];
     var nodes = notes.map(function (n, i) {
       var ch = fretChoices(n.pitch, tuning, maxFret);
       if (!ch.length) unplayable.push({ index: i, pitch: n.pitch });
+      var fc = forced[i];
+      if (fc) {
+        var pin = ch.filter(function (c) { return c.string === fc.string && c.fret === fc.fret; });
+        if (pin.length) return pin;   // restrict the DP to the user's chosen position
+      }
       return ch;
     });
 
@@ -547,11 +554,38 @@
   }
 
   // ===========================================================================
+  // 7b. MANUAL POSITION OVERRIDES
+  // ===========================================================================
+  // A stable per-note identity that survives octave / semitone / time shifts, so
+  // a user's manual position pick can be re-applied (and persisted) across any
+  // transform. origStart/origPitch are the pre-transform values; a per-pair
+  // counter disambiguates true unisons (identical pitch & onset).
+  function noteKeys(notes) {
+    var seen = {}, keys = [];
+    notes.forEach(function (n) {
+      var base = (n.origStart != null ? n.origStart : n.start) + ':' +
+                 (n.origPitch != null ? n.origPitch : n.pitch);
+      var c = seen[base] || 0; seen[base] = c + 1;
+      keys.push(base + ':' + c);
+    });
+    return keys;
+  }
+  // Is a saved {string,fret} override still a legal way to sound `pitch`? (It may
+  // not be after an octave change moves the note off that string / the fretboard.)
+  function validOverride(ov, pitch, tuning, maxFret) {
+    if (!ov || ov.string == null || ov.fret == null) return false;
+    if (ov.string < 0 || ov.string >= tuning.length) return false;
+    if (ov.fret < 0 || ov.fret > maxFret) return false;
+    return tuning[ov.string].open + ov.fret === pitch;
+  }
+
+  // ===========================================================================
   // 8. HIGH-LEVEL CONVENIENCE
   // ===========================================================================
   function convert(song, settings) {
     settings = settings || {};
     var tuning = settings.tuning || STD_TUNING;
+    var maxFret = settings.maxFret == null ? 24 : settings.maxFret;
     var ts = settings.timeSig || song.timeSigs[0] || { num: 4, den: 4 };
     var notes = transformNotes(song.notes, {
       octaveShift: settings.octaveShift || 0,
@@ -560,18 +594,32 @@
     });
     // origin = where bar 1 starts. Default: 0. (User shift handles "start in half a bar".)
     var origin = settings.originTick || 0;
+
+    // map persisted overrides (keyed by stable note id) onto current note indices,
+    // dropping any that no longer fit the transformed pitch / fret count.
+    var keys = noteKeys(notes), forced = {};
+    if (settings.overrides) {
+      for (var i = 0; i < notes.length; i++) {
+        var ov = settings.overrides[keys[i]];
+        if (validOverride(ov, notes[i].pitch, tuning, maxFret)) forced[i] = { string: ov.string, fret: ov.fret };
+      }
+    }
+
     var layout = buildColumns(notes, {
       ppq: song.ppq, gridTicks: settings.gridTicks, timeSig: ts, originTick: origin
     });
     var fb = assignFingering(notes, {
-      tuning: tuning, maxFret: settings.maxFret == null ? 24 : settings.maxFret,
-      avoidOpen: settings.avoidOpen, weights: settings.weights
+      tuning: tuning, maxFret: maxFret,
+      avoidOpen: settings.avoidOpen, weights: settings.weights, forced: forced
     });
     var rhythm = buildRhythm(notes, layout, song.ppq);
     var ergo = analyzeErgonomics(notes, fb.positions, song.ppq, ts,
       { tempos: song.tempos, bpmOverride: settings.bpmOverride || 0 });
     var ascii = renderAscii(notes, fb.positions, layout, tuning, { barsPerLine: settings.barsPerLine || 4 });
-    return { notes: notes, layout: layout, fingering: fb, rhythm: rhythm, ergo: ergo, ascii: ascii, timeSig: ts, tuning: tuning };
+    return {
+      notes: notes, layout: layout, fingering: fb, rhythm: rhythm, ergo: ergo,
+      ascii: ascii, timeSig: ts, tuning: tuning, noteKeys: keys
+    };
   }
 
   // --- exports --------------------------------------------------------------
@@ -581,6 +629,7 @@
     firstNoteLocation: firstNoteLocation, tickToBarBeat: tickToBarBeat, gridLabel: gridLabel,
     tickToSeconds: tickToSeconds, bpmAt: bpmAt,
     transformNotes: transformNotes, fretChoices: fretChoices, assignFingering: assignFingering,
+    noteKeys: noteKeys, validOverride: validOverride,
     buildColumns: buildColumns, buildRhythm: buildRhythm, valueOfTicks: valueOfTicks,
     analyzeErgonomics: analyzeErgonomics, renderAscii: renderAscii,
     convert: convert
