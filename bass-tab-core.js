@@ -171,6 +171,22 @@
     }
     return sec;
   }
+  // Inverse of tickToSeconds: a time in seconds -> absolute tick. Walks the same
+  // piecewise-constant tempo map so the playback playhead lands on the right column.
+  function secondsToTicks(sec, tempos, ppq, bpmOverride) {
+    if (sec <= 0) return 0;
+    if (bpmOverride) return sec * bpmOverride / 60 * ppq;
+    var acc = 0; // seconds elapsed up to the current segment's start tick
+    for (var i = 0; i < tempos.length; i++) {
+      var segStart = tempos[i].tick;
+      var segEnd = (i + 1 < tempos.length) ? tempos[i + 1].tick : Infinity;
+      var secPerTick = (tempos[i].usPerQuarter / ppq) / 1e6;
+      var segSec = (segEnd - segStart) * secPerTick;
+      if (segEnd === Infinity || sec <= acc + segSec) return segStart + (sec - acc) / secPerTick;
+      acc += segSec;
+    }
+    return 0;
+  }
   // The tempo in effect at a given tick (BPM).
   function bpmAt(tick, tempos) {
     var bpm = tempos[0].bpm;
@@ -627,7 +643,7 @@
     STD_TUNING: STD_TUNING, NOTE_NAMES: NOTE_NAMES, pitchName: pitchName,
     parseMidi: parseMidi, detectGrid: detectGrid, pitchStats: pitchStats,
     firstNoteLocation: firstNoteLocation, tickToBarBeat: tickToBarBeat, gridLabel: gridLabel,
-    tickToSeconds: tickToSeconds, bpmAt: bpmAt,
+    tickToSeconds: tickToSeconds, secondsToTicks: secondsToTicks, bpmAt: bpmAt,
     transformNotes: transformNotes, fretChoices: fretChoices, assignFingering: assignFingering,
     noteKeys: noteKeys, validOverride: validOverride,
     buildColumns: buildColumns, buildRhythm: buildRhythm, valueOfTicks: valueOfTicks,
