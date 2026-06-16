@@ -1,21 +1,19 @@
 /* ============================================================================
- * build.js — assemble dist/ for Cloudflare Pages OR Workers static assets.
- * Node >= 18, zero dependencies.
+ * build.js — assemble dist/ for the WEB build (Cloudflare Workers static assets
+ * or Pages). Node >= 18, zero dependencies.
  *
- *   dist/                 <- published (Pages output dir, or Workers assets.directory)
+ * The web build is the OFFLINE editor + asset library: full in-browser editor,
+ * no backend (no AI, no save). It is the desktop app's frontend with config.js
+ * forced to mode='web'.
+ *
+ *   dist/
  *     <web app files>     <- copied from bass-studio/web/
- *     config.js           <- generated: bakes in STUDIO_API_BASE + STUDIO_TOKEN
+ *     config.js           <- generated: window.STUDIO_CONFIG = { mode: 'web' }
  *     assets/             <- the static "asset library" (MIDI/JSON only; see below)
  *     _headers
  *
- * The backend (your local machine behind a Cloudflare Tunnel) is configured via
- * build-time environment variables, NOT committed into the repo:
- *   STUDIO_API_BASE   the tunnel ORIGIN, e.g. https://api.example.com
- *                     (no trailing /api). Empty => same-origin (local serving).
- *   STUDIO_TOKEN      the shared secret matching the backend's STUDIO_API_TOKEN.
- *
- * Asset library: only MIDI/JSON ship to Pages (audio is skipped to keep the
- * deploy lean and avoid publishing large/source media). Override with
+ * Asset library: only MIDI/JSON ship (audio is skipped to keep the deploy lean and
+ * avoid publishing large/source media). Override with
  *   STUDIO_ASSET_EXTS=".mid,.midi,.json,.mp3"
  * ========================================================================== */
 'use strict';
@@ -50,16 +48,12 @@ if (fs.existsSync(ASSETS)) {
     name => ASSET_EXTS.includes(path.extname(name).toLowerCase()));
 }
 
-// 3. config.js — pre-seed window.STUDIO_CONFIG, then reuse web/config.js's
-//    normalization so the mixed-content/base-cleanup logic lives in one place.
-const apiBase = (process.env.STUDIO_API_BASE || '').replace(/\/+$/, '');
-const token = process.env.STUDIO_TOKEN || '';
-const seed = 'window.STUDIO_CONFIG = ' + JSON.stringify({ apiBase, token }) + ';\n';
+// 3. config.js — force web mode (overwrites the committed mode='desktop' default).
 fs.writeFileSync(path.join(OUT, 'config.js'),
-  seed + fs.readFileSync(path.join(WEB, 'config.js'), 'utf8'));
+  'window.STUDIO_CONFIG = { mode: "web" };\n' +
+  fs.readFileSync(path.join(WEB, 'config.js'), 'utf8'));
 
-// 4. _headers (security + asset caching). Honored by both Pages and Workers static
-//    assets. NOTE: CORS is enforced by the FastAPI backend on the tunnel origin.
+// 4. _headers (security + asset caching). Honored by both Pages and Workers static assets.
 fs.writeFileSync(path.join(OUT, '_headers'),
 `/*
   X-Frame-Options: DENY
@@ -75,5 +69,4 @@ fs.writeFileSync(path.join(OUT, '_headers'),
 // not_found_handling in wrangler.jsonc (Workers); a single-page app needs nothing
 // extra on Pages.
 
-console.log('Built dist/  apiBase=' + (apiBase || '(same-origin)') +
-  '  token=' + (token ? '(set)' : '(none)') + '  assetExts=' + ASSET_EXTS.join(','));
+console.log('Built dist/  mode=web  assetExts=' + ASSET_EXTS.join(','));

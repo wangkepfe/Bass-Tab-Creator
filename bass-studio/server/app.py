@@ -35,19 +35,16 @@ import sys
 import json
 import time
 import uuid
-import hmac
 import shutil
 import tempfile
 import threading
 import subprocess
 from pathlib import Path
-from urllib.parse import urlparse
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.concurrency import run_in_threadpool
 
 HERE = Path(__file__).resolve().parent
@@ -61,97 +58,20 @@ WORK_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Bass Studio")
 
-# -----------------------------------------------------------------------------
-# Access control.
-#
-# Locally (no env vars set) the app is served same-origin and the API stays open
-# — exactly as before. The project store + yt-dlp + Demucs pipeline are powerful
-# and were only ever safe because the server binds 127.0.0.1. The moment you put
-# it on the public internet (e.g. a Cloudflare Tunnel so a Cloudflare-Pages
-# frontend can reach it), the loopback bind is NO LONGER the security boundary —
-# set BOTH of these or the tunnel is an open door to your machine:
-#
-#   STUDIO_API_TOKEN        long random shared secret; required on every /api call
-#                           (Authorization: Bearer <t>, or ?token=<t> for <audio>)
-#   STUDIO_ALLOWED_ORIGINS  comma-separated EXACT origins allowed by CORS, e.g.
-#                           https://tab-creator.pages.dev,https://api.example.com
-#
-# Keep uvicorn bound to 127.0.0.1 (cloudflared connects to loopback) — never 0.0.0.0.
-# -----------------------------------------------------------------------------
-STUDIO_API_TOKEN = os.environ.get("STUDIO_API_TOKEN", "").strip()
-_origins_env = os.environ.get("STUDIO_ALLOWED_ORIGINS", "").strip()
-ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in _origins_env.split(",") if o.strip()] \
-    or ["http://127.0.0.1:8000", "http://localhost:8000"]
-
-# Fail-safe against the two dangerous half-configured states. The token and the
-# allowed origins are independent knobs; getting one without the other is either
-# an OPEN DOOR or a silently broken frontend, so make it loud at startup.
-_REMOTE_ORIGINS = [o for o in ALLOWED_ORIGINS
-                   if not re.match(r"https?://(127\.0\.0\.1|localhost)(:|$)", o)]
-if _REMOTE_ORIGINS and not STUDIO_API_TOKEN:
-    raise RuntimeError(
-        "Refusing to start: STUDIO_ALLOWED_ORIGINS permits non-loopback origin(s) %s "
-        "but STUDIO_API_TOKEN is empty -- that would expose an UNAUTHENTICATED backend "
-        "(project store + yt-dlp + Demucs) to the internet. Set STUDIO_API_TOKEN to a "
-        "long random secret first." % ", ".join(_REMOTE_ORIGINS))
-if STUDIO_API_TOKEN and not _REMOTE_ORIGINS:
-    print("[studio] WARNING: STUDIO_API_TOKEN is set but STUDIO_ALLOWED_ORIGINS has no "
-          "non-loopback origin -- browser requests from your Cloudflare Pages site will be "
-          "CORS-blocked (curl/Bearer still works). Set "
-          "STUDIO_ALLOWED_ORIGINS=https://<your-project>.pages.dev", file=sys.stderr)
-
-# Hardening knobs (only really matter once exposed; safe defaults for local use).
-MAX_UPLOAD_BYTES = int(os.environ.get("STUDIO_MAX_UPLOAD_MB", "200")) * 1024 * 1024
-DEMUCS_TIMEOUT = int(os.environ.get("STUDIO_DEMUCS_TIMEOUT", "1800"))   # 30 min
-YT_TIMEOUT = int(os.environ.get("STUDIO_YT_TIMEOUT", "600"))           # 10 min
-YT_MAX_FILESIZE = os.environ.get("STUDIO_YT_MAX_FILESIZE", "200M")
-_yt_hosts_env = os.environ.get("STUDIO_YT_HOSTS", "").strip()
-YT_ALLOWED_HOSTS = [h.strip().lower() for h in _yt_hosts_env.split(",") if h.strip()] \
-    or ["youtube.com", "youtu.be", "music.youtube.com"]
-
-
-def _request_token(request):
-    """The presented token from either the Authorization: Bearer header (used by
-    fetch) or a ?token= query param (used by <audio>/download URLs, which cannot
-    set request headers)."""
-    auth = request.headers.get("authorization", "")
-    if auth[:7].lower() == "bearer ":
-        return auth[7:].strip()
-    return request.query_params.get("token")
-
-
-async def _require_token(request, call_next):
-    """Gate every /api/* route behind STUDIO_API_TOKEN when it is set; a no-op
-    when unset (local single-user dev is unchanged). OPTIONS preflights carry no
-    credentials by spec and are answered by CORSMiddleware, so let them pass."""
-    if STUDIO_API_TOKEN and request.method != "OPTIONS" and request.url.path.lower().startswith("/api"):
-        presented = _request_token(request)
-        # compare as bytes: hmac.compare_digest rejects non-ASCII str operands
-        if not presented or not hmac.compare_digest(presented.encode("utf-8"), STUDIO_API_TOKEN.encode("utf-8")):
-            return JSONResponse({"detail": "unauthorized"}, status_code=401)
-    return await call_next(request)
-
-
-# Auth is added BEFORE CORS so CORSMiddleware wraps it (CORS = outermost): the
-# OPTIONS preflight is answered by CORS before auth runs, and a 401 from auth
-# still carries CORS headers so the browser surfaces a clean 401, not a CORS error.
-app.add_middleware(BaseHTTPMiddleware, dispatch=_require_token)
+# Local desktop app: uvicorn binds 127.0.0.1 and serves the SPA + API same-origin,
+# so the backend is reachable only from this machine. CORS is limited to the
+# loopback origins the app is served from. There is no public exposure, auth, or
+# tunnel any more (that was removed in the web/desktop redesign — see README).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,                      # exact origins only — never "*"
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-    max_age=600,
+    allow_origins=["http://127.0.0.1:8000", "http://localhost:8000"],
+    allow_methods=["*"], allow_headers=["*"],
 )
 
-
-def _job_error(e):
-    """Don't leak raw subprocess stderr (local paths / tool versions) to clients
-    once the API is internet-exposed; log it server-side, surface a generic line."""
-    if STUDIO_API_TOKEN:
-        print("[job error]", repr(e), file=sys.stderr)
-        return "processing failed"
-    return str(e)
+# Robustness knobs for the local pipeline (safe defaults; rarely need changing).
+MAX_UPLOAD_BYTES = int(os.environ.get("STUDIO_MAX_UPLOAD_MB", "1024")) * 1024 * 1024
+DEMUCS_TIMEOUT = int(os.environ.get("STUDIO_DEMUCS_TIMEOUT", "1800"))   # 30 min
+YT_TIMEOUT = int(os.environ.get("STUDIO_YT_TIMEOUT", "600"))           # 10 min
 
 
 def _safe_ext(filename, default=".wav"):
@@ -499,7 +419,6 @@ def run_youtube(job, url):
     title_file = Path(job["dir"]) / "title.txt"
     cmd = [sys.executable, "-m", "yt_dlp", "-x", "--audio-format", "mp3",
            "--audio-quality", "0", "--no-playlist", "--no-warnings",
-           "--max-filesize", YT_MAX_FILESIZE,
            "--print-to-file", "%(title)s", str(title_file),
            "-o", out_tmpl, url]
     try:
@@ -529,7 +448,7 @@ def yt_worker(job, url):
         run_youtube(job, url)
         _set(job, status="done", stage="done", progress=1.0)
     except Exception as e:  # noqa: BLE001
-        _set(job, status="error", stage="error", error=_job_error(e))
+        _set(job, status="error", stage="error", error=str(e))
 
 
 def worker(job, in_path, pipeline, stem, model, min_freq, max_freq, min_note_len, onset, frame, shifts):
@@ -548,7 +467,7 @@ def worker(job, in_path, pipeline, stem, model, min_freq, max_freq, min_note_len
             run_transcribe(job, audio, min_freq, max_freq, min_note_len, onset, frame)
         _set(job, status="done", stage="done", progress=1.0)
     except Exception as e:  # noqa: BLE001 — report any failure to the UI
-        _set(job, status="error", stage="error", error=_job_error(e))
+        _set(job, status="error", stage="error", error=str(e))
 
 
 # -----------------------------------------------------------------------------
@@ -573,11 +492,6 @@ async def create_youtube_job(url: str = Form(...)):
     u = (url or "").strip()
     if not (u.startswith("http://") or u.startswith("https://")):
         raise HTTPException(400, "Provide a full http(s) link.")
-    # SSRF guard: yt-dlp would otherwise fetch ANY url (cloud metadata, LAN hosts,
-    # loopback ports…). Restrict to known media hosts (override via STUDIO_YT_HOSTS).
-    host = (urlparse(u).hostname or "").lower()
-    if not any(host == h or host.endswith("." + h) for h in YT_ALLOWED_HOSTS):
-        raise HTTPException(400, "URL host not allowed (only: %s)" % ", ".join(YT_ALLOWED_HOSTS))
     job = _new_job()
     t = threading.Thread(target=yt_worker, args=(job, u), daemon=True)
     t.start()

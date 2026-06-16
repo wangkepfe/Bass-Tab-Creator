@@ -19,6 +19,9 @@
 
   var currentView = 'pianoroll';
   var drumData = null;   // mirror of the active drum track for the drum tab
+  // 'web' = the static build: offline editor + asset library, no backend (no AI,
+  // no save / project library). 'desktop' = full app served by the local backend.
+  var WEB = !!(window.STUDIO_CONFIG && window.STUDIO_CONFIG.mode === 'web');
 
   /* ---- instrument targets ---- */
   var TARGETS = {
@@ -87,8 +90,8 @@
     $('timeNow').textContent = fmt(st.posSec); $('timeTotal').textContent = fmt(st.durationSec);
   }
 
-  /* ---- backend client ---- */
-  Workflow.init({
+  /* ---- backend client (desktop only — the web build has no backend) ---- */
+  if (!WEB) Workflow.init({
     getTarget: curTarget,
     onSong: onSong, onStem: onStem,
     onMelodicMidi: onMelodicResult, onDrumData: onDrumResult,
@@ -312,7 +315,7 @@
     if (pendingUploads > 0) { clearTimeout(saveTimer); saveTimer = setTimeout(doSave, 300); return; }
     serializeActive();
     markSave('saving…');
-    fetch(Workflow.apiBase() + '/projects/' + project.id, { method: 'PUT', headers: Workflow.authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(serializeMeta()) })
+    fetch('/api/projects/' + project.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(serializeMeta()) })
       .then(function (r) { if (!r.ok) throw new Error('save failed'); return r.json(); })
       .then(function () { dirty = false; markSave('saved ✓'); })
       .catch(function () { markSave('save failed'); flash('Auto-save failed (backend offline?) — your edits are not saved.'); });
@@ -321,7 +324,7 @@
     if (!project.id || !project.song || !project.song.blob) return Promise.resolve();
     pendingUploads++;
     var fd = new FormData(); fd.append('file', project.song.blob, project.song.name || 'song.mp3'); fd.append('role', 'song');
-    return fetch(Workflow.apiBase() + '/projects/' + project.id + '/audio', { method: 'POST', body: fd, headers: Workflow.authHeaders() })
+    return fetch('/api/projects/' + project.id + '/audio', { method: 'POST', body: fd })
       .then(function (r) { if (!r.ok) throw new Error('upload failed'); return r.json(); })
       .then(function (j) { project.song.file = j.file; })
       .catch(function () { flash('Song upload failed — audio not saved.'); })
@@ -332,7 +335,7 @@
     if (!project.id || !t || !t.stem || !t.stem.blob) return Promise.resolve();
     pendingUploads++;
     var fd = new FormData(); fd.append('file', t.stem.blob, t.stem.name || (instrument + '.wav')); fd.append('role', 'stem'); fd.append('instrument', instrument);
-    return fetch(Workflow.apiBase() + '/projects/' + project.id + '/audio', { method: 'POST', body: fd, headers: Workflow.authHeaders() })
+    return fetch('/api/projects/' + project.id + '/audio', { method: 'POST', body: fd })
       .then(function (r) { if (!r.ok) throw new Error('upload failed'); return r.json(); })
       .then(function (j) { t.stem.file = j.file; })
       .catch(function () { flash('Stem upload failed — audio not saved.'); })
@@ -362,7 +365,7 @@
     $('projName').value = project.name;
     var fd = new FormData(); fd.append('name', project.name);
     markSave('creating…');
-    fetch(Workflow.apiBase() + '/projects', { method: 'POST', body: fd, headers: Workflow.authHeaders() })
+    fetch('/api/projects', { method: 'POST', body: fd })
       .then(function (r) { if (!r.ok) throw new Error('create failed'); return r.json(); })
       .then(function (j) {
         project.id = j.id;
@@ -381,26 +384,24 @@
   function openProject(id) {
     if (!confirmDiscard()) return;
     clearTimeout(saveTimer);
-    fetch(Workflow.apiBase() + '/projects/' + id, { headers: Workflow.authHeaders() }).then(function (r) { if (!r.ok) throw new Error('not found'); return r.json(); })
+    fetch('/api/projects/' + id).then(function (r) { if (!r.ok) throw new Error('not found'); return r.json(); })
       .then(function (meta) {
         if (project.song) revoke(project.song.url);
         trackList().forEach(function (t) { if (t.stem) revoke(t.stem.url); });
         project = emptyProject();
         project.id = meta.id; project.name = meta.name || 'Untitled'; project.youtubeUrl = meta.youtubeUrl || '';
         $('projName').value = project.name; $('ytUrl').value = project.youtubeUrl;
-        // Saved-project audio lives on the (possibly cross-origin) backend; route
-        // through mediaUrl() so <audio>.src carries the ?token= the element can't
-        // send as a header.
+        // Saved-project audio is served same-origin by the local backend.
         var audUrl = function (file) {
           var enc = String(file).split('/').map(encodeURIComponent).join('/');  // keep '/' separators, escape segments
-          return Workflow.mediaUrl('/api/projects/' + id + '/audio/' + enc);
+          return '/api/projects/' + id + '/audio/' + enc;
         };
         if (meta.song && meta.song.file) {
           project.song = { name: meta.song.name, file: meta.song.file, url: audUrl(meta.song.file), blob: null };
           $('songName').textContent = (meta.song.name || 'song') + (project.youtubeUrl ? '  ·  YouTube' : ''); show($('songMeta'), true);
           $('songAudio').src = project.song.url; show($('songAudioRow'), true);
           // materialize the song into a Blob so the pipeline can extract more tracks from it
-          fetch(project.song.url, { headers: Workflow.authHeaders() }).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) { if (b) { project.song.blob = b; Workflow.adoptSong(b, project.song.name); } }).catch(function () { });
+          fetch(project.song.url).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) { if (b) { project.song.blob = b; Workflow.adoptSong(b, project.song.name); } }).catch(function () { });
         } else { show($('songMeta'), false); $('songAudio').removeAttribute('src'); Workflow.reset(); }
         (meta.tracks || []).forEach(function (t) {
           var tr = { id: t.id || t.instrument, instrument: t.instrument, kind: t.kind, name: t.name || instLabel(t.instrument) };
@@ -417,7 +418,7 @@
       .catch(function (e) { flash('Could not open project: ' + e.message); });
   }
   function deleteProject(id) {
-    fetch(Workflow.apiBase() + '/projects/' + id, { method: 'DELETE', headers: Workflow.authHeaders() }).then(function () {
+    fetch('/api/projects/' + id, { method: 'DELETE' }).then(function () {
       if (project.id === id) newProject();
       fetchProjects();
     }).catch(function () { flash('Could not delete project.'); });
@@ -425,10 +426,10 @@
 
   /* ====================== project library ====================== */
   var libProjects = [], libLoaded = false, libExamples = null;
-  function openLibrary() { $('libOverlay').style.display = ''; $('libSearch').value = ''; libLoaded = false; renderLibrary(); fetchProjects(); loadExamples(); setTimeout(function () { $('libSearch').focus(); }, 30); }
+  function openLibrary() { $('libOverlay').style.display = ''; $('libSearch').value = ''; libLoaded = false; renderLibrary(); if (!WEB) fetchProjects(); loadExamples(); setTimeout(function () { $('libSearch').focus(); }, 30); }
   function closeLibrary() { $('libOverlay').style.display = 'none'; }
   function fetchProjects() {
-    fetch(Workflow.apiBase() + '/projects', { cache: 'no-store', headers: Workflow.authHeaders() }).then(function (r) { return r.ok ? r.json() : { projects: [] }; })
+    fetch('/api/projects', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : { projects: [] }; })
       .then(function (j) { libProjects = (j && j.projects) || []; libLoaded = true; renderLibrary(); })
       .catch(function () { libProjects = []; libLoaded = true; renderLibrary(); });
   }
@@ -460,7 +461,12 @@
     var q = ($('libSearch').value || '').toLowerCase().trim();
     var list = $('libList'); list.innerHTML = '';
     var items = libProjects.filter(function (p) { return !q || (p.name || '').toLowerCase().indexOf(q) >= 0; });
-    if (!items.length) { show($('libEmpty'), true); $('libEmpty').textContent = libLoaded ? (libProjects.length ? 'No projects match.' : 'No saved projects yet — load a song, extract a track, then Save.') : 'Loading…'; }
+    if (!items.length) {
+      // In web mode there's no server project list — the pinned examples below are
+      // the whole library, so only show an empty hint when filtering hides them.
+      var emptyMsg = WEB ? (q ? 'No examples match.' : '') : (libLoaded ? (libProjects.length ? 'No projects match.' : 'No saved projects yet — load a song, extract a track, then Save.') : 'Loading…');
+      show($('libEmpty'), !!emptyMsg); $('libEmpty').textContent = emptyMsg;
+    }
     else {
       show($('libEmpty'), false);
       items.forEach(function (p) {
@@ -627,6 +633,9 @@
   $('libSearch').addEventListener('input', renderLibrary);
   $('projName').addEventListener('change', function () { project.name = (this.value || '').trim() || defaultName(); this.value = project.name; scheduleSave(); });
   $('btnOpenMidi').onclick = function () { $('midiInput').click(); };
+  // MIDI import is client-side, so it's wired here (works in both web + desktop;
+  // the workflow source-bar drop zone is desktop-only).
+  $('midiInput').addEventListener('change', function (e) { if (e.target.files[0]) { openMidiFile(e.target.files[0]); e.target.value = ''; } });
   $('btnExportMidi').onclick = function () {
     var t = project.tracks[project.activeTrackId];
     if (t && t.kind === 'drum') { exportDrumMidi(); return; }
@@ -672,6 +681,7 @@
   window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 
   /* ---- init ---- */
+  if (WEB) document.body.classList.add('mode-web');   // CSS hides .desktop-only
   roll.setGridTicks(gridTicks());
   setToolUI('select'); dToolUI('select');
   applyTarget(); updateViewAvailability('bass');

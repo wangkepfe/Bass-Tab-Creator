@@ -14,16 +14,16 @@
   <span class="proj">
     <input id="projName" placeholder="Untitled project" title="Project name" autocomplete="off" spellcheck="false">
     <button class="btn sm" id="btnNewProj" title="Start a new empty project">New</button>
-    <button class="btn sm primary" id="btnSaveProj" title="Save / update this project">Save</button>
+    <button class="btn sm primary desktop-only" id="btnSaveProj" title="Save / update this project">Save</button>
     <button class="btn sm" id="btnLibrary" title="Open the project library">📁 Library</button>
-    <span class="dim" id="saveStatus" title="Save state"></span>
+    <span class="dim desktop-only" id="saveStatus" title="Save state"></span>
   </span>
   <span class="grow"></span>
-  <span class="pill" id="backendPill">checking…</span>
+  <span class="pill desktop-only" id="backendPill">checking…</span>
 </header>
 
-<!-- ============ SOURCE BAR ============ -->
-<section class="workflow" id="workflow">
+<!-- ============ SOURCE BAR (desktop only — the web build has no AI backend) ============ -->
+<section class="workflow desktop-only" id="workflow">
   <div class="wf-col">
     <div class="yt">
       <input type="url" id="ytUrl" placeholder="Paste a YouTube link…" autocomplete="off" spellcheck="false">

@@ -19,13 +19,8 @@ echo App:  http://localhost:8000/
 echo Press Ctrl+C to stop.
 echo.
 
-REM Bind loopback only. cloudflared (start-tunnel.bat) connects to this loopback
-REM listener, so there is NO reason to bind 0.0.0.0 / the LAN. Once you expose the
-REM backend through a tunnel, the security boundary is NOT the loopback bind any
-REM more — it is STUDIO_API_TOKEN + STUDIO_ALLOWED_ORIGINS. Set BOTH before
-REM tunnelling, e.g. (in this shell, before running this script):
-REM     set STUDIO_API_TOKEN=<a long random secret>
-REM     set STUDIO_ALLOWED_ORIGINS=https://your-project.pages.dev
+REM Dev launcher for the local backend. Binds 127.0.0.1 only (local app, no network
+REM exposure). For an end-user release use release.bat -> run.bat instead.
 set PYTHONWARNINGS=ignore::FutureWarning
 start "" "http://localhost:8000/"
 .venv\Scripts\uvicorn.exe app:app --host 127.0.0.1 --port 8000

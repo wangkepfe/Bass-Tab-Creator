@@ -1,11 +1,10 @@
 {
   "name": "studio",
-  "version": "2.1.0",
-  "description": "Studio — YouTube/audio/MIDI → stem isolation → MIDI → editable piano-roll, ergonomic bass tab, and drum tab, with original/stem/synth playback. Static frontend (Cloudflare Pages) talking to a local FastAPI GPU backend (Demucs · basic-pitch · ADTOF · yt-dlp) over a Cloudflare Tunnel.",
+  "version": "3.0.0",
+  "description": "Studio — song → stem → MIDI → editable piano-roll, ergonomic bass tab, and drum tab. Ships as a free web app (offline editor + asset library) and a Windows desktop app with the full local-GPU AI pipeline (Demucs · basic-pitch · ADTOF · yt-dlp).",
   "scripts": {
     "start": "python -m uvicorn app:app --app-dir bass-studio/server --port 8000",
     "build": "node build.js",
-    "tunnel": "cloudflared tunnel --url http://localhost:8000",
     "test": "node bass-studio/test-core.js"
   },
   "keywords": ["midi", "bass", "tablature", "tab", "drums", "piano-roll", "demucs", "basic-pitch", "stem", "transcription", "youtube"],
