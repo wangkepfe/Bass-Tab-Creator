@@ -1,10 +1,10 @@
 {
   "examples": [
-    { "name": "Private Eyes", "tracks": [
+    { "name": "Private Eyes", "youtube": "https://www.youtube.com/watch?v=WvBUHHjtJw0", "tracks": [
       { "file": "Private Eyes Bass.mid", "instrument": "bass" },
       { "file": "Private Eyes Drums.mid", "instrument": "drums" }
     ] },
-    { "name": "Too Many Kicks", "tracks": [
+    { "name": "Too Many Kicks", "youtube": "https://www.youtube.com/watch?v=0QqSZ5dZH7I", "tracks": [
       { "file": "Too Many Kicks Bass.mid", "instrument": "bass" },
       { "file": "Too Many Kicks Drums.mid", "instrument": "drums" }
     ] }

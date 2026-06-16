@@ -42,36 +42,49 @@ var Transport = (function () {
   function audioEl() { return source === 'original' ? cfg.audios.original : source === 'stem' ? cfg.audios.stem : null; }
   function activeMelodicView() { return view === 'basstab' ? cfg.views.basstab : cfg.views.pianoroll; }
 
+  // The "original" (song) source plays a downloaded <audio> file when one is
+  // loaded; otherwise a YouTube video (the web app has no audio to download).
+  function yt() { return cfg.youtube; }
+  function origHasAudio() { var el = cfg.audios && cfg.audios.original; return !!(el && el.getAttribute && el.getAttribute('src')); }
+  function isYt() { return source === 'original' && !origHasAudio() && yt() && yt().hasVideo(); }
+
   // ---- engine abstraction --------------------------------------------------
   function enginePlay(fromExisting) {
     if (source === 'synth') {
       if (isMelodic()) { cfg.melodicSynth.rebuild(); cfg.melodicSynth.setMetro(metroOn); cfg.melodicSynth.play(); }
       else cfg.drumSynth.play();
-    } else { var el = audioEl(); if (el) { var p = el.play(); if (p && p.catch) p.catch(function () {}); } }
+    } else if (isYt()) { yt().play(); }
+    else { var el = audioEl(); if (el) { var p = el.play(); if (p && p.catch) p.catch(function () {}); } }
   }
   function enginePause() {
     if (source === 'synth') { isMelodic() ? cfg.melodicSynth.pause() : cfg.drumSynth.pause(); }
+    else if (isYt()) { yt().pause(); }
     else { var el = audioEl(); if (el) el.pause(); }
   }
   function engineStop() {
     if (source === 'synth') { isMelodic() ? cfg.melodicSynth.stop() : cfg.drumSynth.stop(); }
+    else if (isYt()) { yt().stop(); }
     else { var el = audioEl(); if (el) { el.pause(); try { el.currentTime = 0; } catch (e) {} } }
   }
   function engineSeek(sec) {
     sec = Math.max(0, sec);
     if (source === 'synth') { isMelodic() ? cfg.melodicSynth.seekTick(Math.round(sec * tps())) : cfg.drumSynth.seekSeconds(sec); }
+    else if (isYt()) { yt().seek(sec); }
     else { var el = audioEl(); if (el) { try { el.currentTime = sec; } catch (e) {} } }
   }
   function enginePlaying() {
     if (source === 'synth') return isMelodic() ? cfg.melodicSynth.isPlaying() : cfg.drumSynth.isPlaying();
+    if (isYt()) return yt().isPlaying();
     var el = audioEl(); return !!(el && !el.paused && !el.ended);
   }
   function posSeconds() {
     if (source === 'synth') return isMelodic() ? cfg.melodicSynth.positionTick() / tps() : cfg.drumSynth.currentTime();
+    if (isYt()) return yt().currentTime();
     var el = audioEl(); return el ? el.currentTime : 0;
   }
   function durSeconds() {
     if (source === 'synth') return isMelodic() ? cfg.melodicSynth.durationTick() / tps() : drumDuration;
+    if (isYt()) return yt().duration();
     var el = audioEl(); return (el && isFinite(el.duration)) ? el.duration : 0;
   }
 
@@ -140,7 +153,11 @@ var Transport = (function () {
       if (isMelodic()) { var p = project(); return !!(p.notes && p.notes.length) || true; }   // synth always selectable for melodic
       return drumDuration > 0;
     }
-    var el = name === 'original' ? cfg.audios.original : cfg.audios.stem;
+    if (name === 'original') {
+      var oel = cfg.audios.original;
+      return !!(oel && oel.getAttribute && oel.getAttribute('src')) || !!(cfg.youtube && cfg.youtube.hasVideo());
+    }
+    var el = cfg.audios.stem;
     return !!(el && el.getAttribute && el.getAttribute('src'));
   }
 

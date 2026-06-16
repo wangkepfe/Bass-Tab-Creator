@@ -96,7 +96,7 @@
     <span class="time" id="timeNow">0:00</span><span class="time dim">/</span><span class="time dim" id="timeTotal">0:00</span>
     <span class="seg" id="srcSeg" title="What Play controls — A/B the transcription against the source audio">
       <button class="on" data-src="synth" title="Play the transcription (synth)">Synth</button>
-      <button data-src="original" disabled title="Play the original song">Original</button>
+      <button data-src="original" disabled title="Play the song (audio or YouTube)">Song</button>
       <button data-src="stem" disabled title="Play the isolated stem">Stem</button>
     </span>
   </div>
@@ -338,6 +338,12 @@
   </div>
 </div>
 
+<!-- ============ YOUTUBE PLAYER (the "Song" source) ============ -->
+<div id="ytPanel" style="display:none">
+  <div class="yt-head"><span class="yt-title" id="ytTitle">YouTube</span><button class="yt-x" id="ytHide" title="Hide video">✕</button></div>
+  <div id="ytPlayer"></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="config.js"></script>
@@ -350,6 +356,7 @@
 <script src="bass-tab.js"></script>
 <script src="drum-roll.js"></script>
 <script src="transport.js"></script>
+<script src="youtube.js"></script>
 <script src="workflow.js"></script>
 <script src="app.js"></script>
 </body>

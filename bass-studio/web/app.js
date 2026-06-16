@@ -74,10 +74,12 @@
 
   /* ---- synth + transport ---- */
   EditorPlayer.configure({ getProject: function () { return roll.getProject(); }, setPlayhead: function () { }, onState: function () { } });
+  YouTubePlayer.mount('ytPlayer');
   Transport.init({
     getProject: function () { return roll.getProject(); },
     melodicSynth: EditorPlayer, drumSynth: DrumSynth,
     audios: { original: $('songAudio'), stem: $('stemAudio') },
+    youtube: YouTubePlayer,
     views: {
       pianoroll: { setPlayheadTick: function (t) { roll.setPlayhead(t); } },
       basstab: { setPlayheadTick: function (t) { bassTab.setPlayheadTick(t); } },
@@ -355,6 +357,7 @@
     project = emptyProject(); dirty = false; Workflow.reset();
     $('projName').value = ''; $('ytUrl').value = ''; markSave('');
     show($('songMeta'), false); $('songAudio').removeAttribute('src'); show($('songAudioRow'), false);
+    YouTubePlayer.clear(); $('ytPanel').style.display = 'none';
     Transport.stop(); clearEditors(); renderTracks();
     if (!silent) flash('New project.');
     return true;
@@ -464,6 +467,7 @@
       loaded.forEach(function (l) { importMidiBytes(l.bytes, { instrument: l.instrument }); });
       var first = Object.keys(project.tracks)[0];   // land on the first track (bass)
       if (first) activateTrack(first);
+      if (ex.youtube) setSongYouTube(ex.youtube);   // wire the song's YouTube as the "Song" source
       closeLibrary(); flash('Loaded example: ' + ex.name + ' — Save to keep it.');
     }).catch(function (e) { flash('Could not load "' + ex.name + '": ' + e.message); });
   }
@@ -522,7 +526,27 @@
   $('btnStop').onclick = function () { Transport.stop(); };
   var metro = false;
   $('btnMetro').onclick = function () { metro = !metro; this.classList.toggle('on', metro); this.setAttribute('aria-pressed', metro); Transport.setMetro(metro); };
-  $('srcSeg').addEventListener('click', function (e) { var b = e.target.closest('button[data-src]'); if (b && !b.disabled) { Transport.setSource(b.dataset.src); refreshSrcButtons(); } });
+  $('srcSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-src]');
+    if (b && !b.disabled) {
+      Transport.setSource(b.dataset.src); refreshSrcButtons();
+      // selecting the Song source re-shows the (hideable) video panel
+      if (b.dataset.src === 'original' && YouTubePlayer.hasVideo()) $('ytPanel').style.display = '';
+    }
+  });
+  // Wire a song's YouTube video as the "Song" source (web app has no audio file).
+  function setSongYouTube(url) {
+    if (url && YouTubePlayer.load(url)) {
+      project.youtubeUrl = url;
+      $('ytTitle').textContent = 'YouTube';
+      $('ytPanel').style.display = '';
+    } else {
+      YouTubePlayer.clear();
+      $('ytPanel').style.display = 'none';
+    }
+    refreshSrcButtons();
+  }
+  $('ytHide').onclick = function () { $('ytPanel').style.display = 'none'; };
   function refreshSrcButtons() {
     var seg = $('srcSeg');
     seg.querySelector('[data-src=original]').disabled = !Transport.sourceAvailable('original');
