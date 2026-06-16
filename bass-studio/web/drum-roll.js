@@ -285,13 +285,22 @@ var DrumRoll = (function () {
         var idx = DrumTabCore.TYPE_TO_IDX[ev.type];
         if (idx === undefined) return;
         var lane = LANES[idx];
-        var x  = timeToX(ev.time_sec);
-        var y  = HEADER_H + idx * LANE_H + HIT_PAD;
-        var h  = LANE_H - HIT_PAD * 2;
-        var isSel = st.sel.has(ev._id);
+        var x       = timeToX(ev.time_sec);
+        var laneTop = HEADER_H + idx * LANE_H + HIT_PAD;
+        var fullH   = LANE_H - HIT_PAD * 2;
+        var isSel   = st.sel.has(ev._id);
+
+        // Velocity → visual weight. Softer hits read shorter + more transparent,
+        // harder hits taller + opaque (both cues move together for a clear accent
+        // feel). Floors keep even ghost notes legible; a full-velocity hit fills
+        // the lane exactly as before. Bar stays centred in the lane.
+        var vel   = clamp((ev.velocity || 100) / 127, 0, 1);
+        var h     = fullH * (0.45 + 0.55 * vel);
+        var y     = laneTop + (fullH - h) / 2;
+        var alpha = 0.45 + 0.55 * vel;
 
         cx.fillStyle   = lane.color;
-        cx.globalAlpha = isSel ? 1.0 : 0.78;
+        cx.globalAlpha = isSel ? 1.0 : alpha;
         roundRect(cx, x, y, hw, h, 3);
         cx.fill();
 
