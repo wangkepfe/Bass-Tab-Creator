@@ -7,6 +7,10 @@
     { "name": "Too Many Kicks", "youtube": "https://www.youtube.com/watch?v=0QqSZ5dZH7I", "tracks": [
       { "file": "Too Many Kicks Bass.mid", "instrument": "bass" },
       { "file": "Too Many Kicks Drums.mid", "instrument": "drums" }
+    ] },
+    { "name": "Too Many Kicks Live Session 2020", "youtube": "https://www.youtube.com/watch?v=Nl1CRzSY0mM", "tracks": [
+      { "file": "Too Many Kicks Live Session 2020 Bass.mid", "instrument": "bass" },
+      { "file": "Too Many Kicks Live Session 2020 Drums.mid", "instrument": "drums" }
     ] }
   ]
 }
