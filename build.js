@@ -61,6 +61,8 @@ fs.writeFileSync(path.join(OUT, '_headers'),
   Referrer-Policy: no-referrer
 /config.js
   Cache-Control: no-store
+/assets/manifest.json
+  Cache-Control: no-cache
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 `);

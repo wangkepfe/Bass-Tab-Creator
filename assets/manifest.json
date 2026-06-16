@@ -1,6 +1,12 @@
 {
   "examples": [
-    { "name": "Private Eyes — Bass", "file": "Private Eyes Bass.mid", "instrument": "bass" },
-    { "name": "Too Many Kicks — Bass", "file": "Too Many Kicks Bass.mid", "instrument": "bass" }
+    { "name": "Private Eyes", "tracks": [
+      { "file": "Private Eyes Bass.mid", "instrument": "bass" },
+      { "file": "Private Eyes Drums.mid", "instrument": "drums" }
+    ] },
+    { "name": "Too Many Kicks", "tracks": [
+      { "file": "Too Many Kicks Bass.mid", "instrument": "bass" },
+      { "file": "Too Many Kicks Drums.mid", "instrument": "drums" }
+    ] }
   ]
 }

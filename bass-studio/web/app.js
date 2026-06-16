@@ -441,21 +441,31 @@
   function isHtml(r) { return /text\/html/i.test(r.headers.get('content-type') || ''); }
   function loadExamples() {
     if (libExamples) { renderLibrary(); return; }
-    fetch('assets/manifest.json', { cache: 'force-cache' })
+    // no-cache (revalidate): the manifest changes when examples are added, so it
+    // must NOT be force-cached/immutable. The MIDIs it points to are stable.
+    fetch('assets/manifest.json', { cache: 'no-cache' })
       .then(function (r) { return (r.ok && !isHtml(r)) ? r.json() : null; })
       .then(function (j) { libExamples = (j && j.examples) || []; renderLibrary(); })
       .catch(function () { libExamples = []; });
   }
+  // An example is a project with one or more tracks (bass + drums). Old single-file
+  // form ({file,instrument}) is still supported.
+  function exampleTracks(ex) { return ex.tracks || (ex.file ? [{ file: ex.file, instrument: ex.instrument }] : []); }
   function loadExample(ex) {
-    fetch('assets/' + encodeURIComponent(ex.file), { cache: 'force-cache' })
-      .then(function (r) { if (!r.ok || isHtml(r)) throw new Error('not deployed (HTTP ' + r.status + ')'); return r.arrayBuffer(); })
-      .then(function (buf) {
-        if (!newProject(true)) return;          // user cancelled the discard prompt
-        project.name = ex.name; $('projName').value = ex.name;
-        importMidiBytes(new Uint8Array(buf), { instrument: ex.instrument });
-        closeLibrary(); flash('Loaded example: ' + ex.name + ' — Save to keep it.');
-      })
-      .catch(function (e) { flash('Could not load "' + ex.name + '": ' + e.message); });
+    var tracks = exampleTracks(ex);
+    if (!tracks.length) { flash('Empty example.'); return; }
+    Promise.all(tracks.map(function (t) {
+      return fetch('assets/' + encodeURIComponent(t.file), { cache: 'force-cache' })
+        .then(function (r) { if (!r.ok || isHtml(r)) throw new Error(t.file + ' not deployed (HTTP ' + r.status + ')'); return r.arrayBuffer(); })
+        .then(function (buf) { return { bytes: new Uint8Array(buf), instrument: t.instrument }; });
+    })).then(function (loaded) {
+      if (!newProject(true)) return;          // user cancelled the discard prompt
+      project.name = ex.name; $('projName').value = ex.name;
+      loaded.forEach(function (l) { importMidiBytes(l.bytes, { instrument: l.instrument }); });
+      var first = Object.keys(project.tracks)[0];   // land on the first track (bass)
+      if (first) activateTrack(first);
+      closeLibrary(); flash('Loaded example: ' + ex.name + ' — Save to keep it.');
+    }).catch(function (e) { flash('Could not load "' + ex.name + '": ' + e.message); });
   }
   function renderLibrary() {
     var q = ($('libSearch').value || '').toLowerCase().trim();
@@ -493,7 +503,10 @@
       row.appendChild(b); list.appendChild(row);
     }
     (libExamples || []).filter(function (e) { return !q || (e.name || '').toLowerCase().indexOf(q) >= 0; })
-      .forEach(function (e) { pinned(e.name, (e.instrument || 'bass') + ' · example tab', function () { loadExample(e); }); });
+      .forEach(function (e) {
+        var insts = exampleTracks(e).map(function (t) { return t.instrument; }).join(' · ') || 'bass';
+        pinned(e.name, insts + ' · example', function () { loadExample(e); });
+      });
     pinned('Demo bass line', 'built-in · offline quick-start', loadDemo);
   }
   function fmtDate(t) { if (!t) return '—'; try { return new Date(t * 1000).toLocaleString(); } catch (e) { return '—'; } }
