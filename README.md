@@ -162,8 +162,61 @@ This release adds the controls that make it safe to tunnel:
   and warns if a token is set without any remote origin (which would CORS-block your
   Pages frontend — works in `curl`, fails in the browser).
 
-For an extra layer, put **Cloudflare Access** (Zero Trust) in front of the tunnel
-hostname so unauthenticated requests never even reach your machine.
+---
+
+## Lock it down with Cloudflare Access
+
+The embedded token **cannot** be kept secret in a public SPA, so it only deters
+scanners. To actually limit *who* can use your backend, put **Cloudflare Access**
+(Zero Trust, free tier) in front — it authenticates requests at Cloudflare's edge,
+so unauthenticated traffic never reaches your machine.
+
+**Prerequisite:** a **named tunnel on a domain in your Cloudflare account** (the
+random `trycloudflare.com` URL can't carry an Access policy). See *Stable URL* above.
+
+### Recommended: same-origin (serve the whole app through the tunnel)
+
+The cleanest setup is to **not** use Pages and instead serve the UI *and* API from
+the one tunnel hostname. The backend already serves the editor at `/`, so this works
+out of the box and sidesteps every cross-origin cookie/CORS headache.
+
+1. Point the tunnel at `localhost:8000` (serves both `/` and `/api`):
+   ```yaml
+   # %USERPROFILE%\.cloudflared\config.yml
+   tunnel: <UUID>
+   credentials-file: C:\Users\WK\.cloudflared\<UUID>.json
+   ingress:
+     - hostname: studio.example.com
+       service: http://localhost:8000
+     - service: http_status:404
+   ```
+   `cloudflared tunnel route dns <name> studio.example.com` and run it. Now the app
+   is `https://studio.example.com`. **Leave `STUDIO_API_TOKEN` and
+   `STUDIO_ALLOWED_ORIGINS` unset** — same-origin + Access is the gate.
+2. Open **one.dash.cloudflare.com** → on first use pick a team name
+   (`<team>.cloudflareaccess.com`) and the **Free** plan.
+3. **Access → Applications → Add an application → Self-hosted.**
+   - Application domain: `studio.example.com`. Session duration: e.g. 24h.
+4. **Add a policy:** Action **Allow**; Include → **Emails** → your email (add any
+   others you want to let in).
+5. **Authentication:** the built-in **One-time PIN** needs no identity provider —
+   Access emails a login code. (Or wire up Google/GitHub.)
+6. Save. Now every visitor must pass Access before reaching your machine, and the
+   session cookie covers the UI, the API, *and* `<audio>`/downloads automatically
+   (same-origin) — no CORS, no public token.
+7. *(Optional, defense-in-depth)* Validate the Access JWT in FastAPI: each request
+   carries `Cf-Access-Jwt-Assertion`; verify it against
+   `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` so a leaked tunnel URL
+   alone can't get in.
+
+### Keeping the Pages frontend (cross-origin) with Access
+
+Doable but fiddlier — the browser must already hold an Access cookie for the API
+host: (a) put Access on `api.example.com`; (b) switch the frontend fetches to
+`credentials:'include'`; (c) in the Access app's **CORS settings** allow the Pages
+origin with **Allow-Credentials** *and* enable **"Bypass OPTIONS requests to
+origin"** (cookies aren't sent on preflight); (d) the user visits `api.example.com`
+once to log in. The same-origin route above avoids all of this.
 
 ---
 
