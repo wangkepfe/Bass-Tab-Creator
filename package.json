@@ -1,11 +1,11 @@
 {
-  "name": "bass-tab-creator",
-  "version": "1.0.0",
-  "description": "Convert a MIDI file into ergonomic bass guitar tablature with traditional rhythm notation. Zero-dependency static site.",
+  "name": "studio",
+  "version": "2.0.0",
+  "description": "Studio — YouTube/audio/MIDI → stem isolation → MIDI → editable piano-roll, ergonomic bass tab, and drum tab, with original/stem/synth playback. One app served by a local FastAPI backend (Demucs · basic-pitch · ADTLib · yt-dlp).",
   "scripts": {
-    "dev": "python -m http.server 8777",
-    "test": "node test-core.js"
+    "start": "python -m uvicorn app:app --app-dir bass-studio/server --port 8000",
+    "test": "node bass-studio/test-core.js"
   },
-  "keywords": ["midi", "bass", "tablature", "tab", "music"],
+  "keywords": ["midi", "bass", "tablature", "tab", "drums", "piano-roll", "demucs", "basic-pitch", "stem", "transcription", "youtube"],
   "homepage": "https://github.com/wangkepfe/Bass-Tab-Creator"
 }

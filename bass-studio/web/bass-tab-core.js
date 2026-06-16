@@ -216,6 +216,35 @@
     });
   }
 
+  // Reduce a possibly-polyphonic transcription (e.g. basic-pitch output, which
+  // adds octave harmonics above the fundamental and stacks ghost notes) to a
+  // single playable bass line. Near-simultaneous detections within `eps` ticks
+  // are treated as one onset; we keep one note per onset (lowest pitch = the
+  // bass fundamental by default, or loudest with pick:'loud'), then trim each
+  // note's tail to the next onset so the line is strictly monophonic.
+  function monophonicReduce(notes, ppq, opts) {
+    opts = opts || {};
+    var eps = opts.eps != null ? opts.eps : Math.max(1, Math.round((ppq || 480) / 8));
+    var pick = opts.pick || 'low';
+    function cp(n) { return { start: n.start, end: n.end, pitch: n.pitch, velocity: n.velocity, channel: n.channel, track: n.track }; }
+    var src = notes.slice().filter(function (n) { return n.end > n.start; })
+      .sort(function (a, b) { return a.start - b.start || a.pitch - b.pitch; });
+    var picks = [], i = 0;
+    while (i < src.length) {
+      var gStart = src[i].start, j = i, best = src[i];
+      while (j < src.length && src[j].start <= gStart + eps) {
+        var c = src[j];
+        if (pick === 'loud') { if (c.velocity > best.velocity || (c.velocity === best.velocity && c.pitch < best.pitch)) best = c; }
+        else if (c.pitch < best.pitch || (c.pitch === best.pitch && c.velocity > best.velocity)) best = c;
+        j++;
+      }
+      picks.push(cp(best));
+      i = j;
+    }
+    for (var k = 0; k < picks.length - 1; k++) if (picks[k].end > picks[k + 1].start) picks[k].end = picks[k + 1].start;
+    return picks.filter(function (n) { return n.end > n.start; });
+  }
+
   // ===========================================================================
   // 4. ERGONOMIC FINGERING  (Viterbi-style min-cost path over fretboard choices)
   // ===========================================================================
@@ -277,37 +306,48 @@
       return travel + sc;
     }
 
-    // DP over notes
+    // DP over the PLAYABLE subsequence only. A note whose pitch is out of range
+    // has an empty choice set (unplayable); including it would set every later
+    // dp cost to Infinity and collapse the whole backtrace, so we skip it here
+    // and leave its position null. Transitions connect consecutive *played*
+    // notes, which is also what a player feels.
     var N = nodes.length;
-    if (!N) return { positions: [], unplayable: unplayable };
-    var dp = [], back = [], ref = [];
-    dp[0] = nodes[0].map(posCost);
-    back[0] = nodes[0].map(function () { return -1; });
-    ref[0] = nodes[0].map(function (c) { return c.fret === 0 ? null : c.fret; });
-
-    for (var i = 1; i < N; i++) {
-      dp[i] = []; back[i] = []; ref[i] = [];
-      var cur = nodes[i], prevSet = nodes[i - 1];
-      for (var j = 0; j < cur.length; j++) {
-        var best = Infinity, bestK = 0, bestRef = null;
-        for (var k = 0; k < prevSet.length; k++) {
-          if (dp[i - 1][k] === Infinity) continue;
-          var prevRef = ref[i - 1][k] == null ? prevSet[k].fret : ref[i - 1][k];
-          // if previous was open & had no prior ref, treat its ref as current fret (no travel)
-          if (ref[i - 1][k] == null && prevSet[k].fret === 0) prevRef = cur[j].fret || prevRef;
-          var c = dp[i - 1][k] + transCost(prevSet[k], prevRef, cur[j]);
-          if (c < best) { best = c; bestK = k; bestRef = (cur[j].fret === 0 ? prevRef : cur[j].fret); }
-        }
-        dp[i][j] = best + posCost(cur[j]);
-        back[i][j] = bestK;
-        ref[i][j] = bestRef;
-      }
-    }
-    // backtrace
-    var last = nodes[N - 1], bj = 0, bv = Infinity;
-    for (var j2 = 0; j2 < last.length; j2++) if (dp[N - 1][j2] < bv) { bv = dp[N - 1][j2]; bj = j2; }
+    if (!N) return { positions: [], unplayable: unplayable, chosen: [] };
+    var playIdx = [];
+    for (var pi = 0; pi < N; pi++) if (nodes[pi].length) playIdx.push(pi);
+    var M = playIdx.length;
     var chosen = new Array(N);
-    for (var i2 = N - 1; i2 >= 0; i2--) { chosen[i2] = nodes[i2][bj]; bj = back[i2] ? back[i2][bj] : 0; }
+    for (var z = 0; z < N; z++) chosen[z] = null;
+    if (M) {
+      var dp = [], back = [], ref = [];
+      var first = nodes[playIdx[0]];
+      dp[0] = first.map(posCost);
+      back[0] = first.map(function () { return -1; });
+      ref[0] = first.map(function (c) { return c.fret === 0 ? null : c.fret; });
+
+      for (var i = 1; i < M; i++) {
+        dp[i] = []; back[i] = []; ref[i] = [];
+        var cur = nodes[playIdx[i]], prevSet = nodes[playIdx[i - 1]];
+        for (var j = 0; j < cur.length; j++) {
+          var best = Infinity, bestK = 0, bestRef = null;
+          for (var k = 0; k < prevSet.length; k++) {
+            if (dp[i - 1][k] === Infinity) continue;
+            var prevRef = ref[i - 1][k] == null ? prevSet[k].fret : ref[i - 1][k];
+            // if previous was open & had no prior ref, treat its ref as current fret (no travel)
+            if (ref[i - 1][k] == null && prevSet[k].fret === 0) prevRef = cur[j].fret || prevRef;
+            var c = dp[i - 1][k] + transCost(prevSet[k], prevRef, cur[j]);
+            if (c < best) { best = c; bestK = k; bestRef = (cur[j].fret === 0 ? prevRef : cur[j].fret); }
+          }
+          dp[i][j] = best + posCost(cur[j]);
+          back[i][j] = bestK;
+          ref[i][j] = bestRef;
+        }
+      }
+      // backtrace over the played subsequence, then scatter back to note indices
+      var last = nodes[playIdx[M - 1]], bj = 0, bv = Infinity;
+      for (var j2 = 0; j2 < last.length; j2++) if (dp[M - 1][j2] < bv) { bv = dp[M - 1][j2]; bj = j2; }
+      for (var i2 = M - 1; i2 >= 0; i2--) { chosen[playIdx[i2]] = nodes[playIdx[i2]][bj]; bj = back[i2][bj]; }
+    }
 
     // finger assignment: one-finger-per-fret hand window, track shifts
     var positions = [];
@@ -644,7 +684,8 @@
     parseMidi: parseMidi, detectGrid: detectGrid, pitchStats: pitchStats,
     firstNoteLocation: firstNoteLocation, tickToBarBeat: tickToBarBeat, gridLabel: gridLabel,
     tickToSeconds: tickToSeconds, secondsToTicks: secondsToTicks, bpmAt: bpmAt,
-    transformNotes: transformNotes, fretChoices: fretChoices, assignFingering: assignFingering,
+    transformNotes: transformNotes, monophonicReduce: monophonicReduce,
+    fretChoices: fretChoices, assignFingering: assignFingering,
     noteKeys: noteKeys, validOverride: validOverride,
     buildColumns: buildColumns, buildRhythm: buildRhythm, valueOfTicks: valueOfTicks,
     analyzeErgonomics: analyzeErgonomics, renderAscii: renderAscii,

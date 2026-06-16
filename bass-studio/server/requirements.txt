@@ -1,0 +1,46 @@
+# Bass Studio backend dependencies — Python 3.10–3.12.
+#
+# IMPORTANT: basic-pitch 0.4.0 hard-pins tensorflow<2.15.1, which has NO wheel for
+# Python 3.12. We don't need TensorFlow (basic-pitch ships an ONNX model and uses
+# the onnxruntime backend), so basic-pitch is installed separately with --no-deps.
+#
+# Install in THREE steps (see README.md):
+#   1) GPU PyTorch for Demucs:
+#        pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+#      (CPU-only fallback:  pip install torch torchaudio)
+#   2) this file:
+#        pip install -r requirements.txt
+#   3) basic-pitch without its TensorFlow dep:
+#        pip install basic-pitch --no-deps
+
+numpy<2                  # numba/llvmlite + this ML stack are happiest on numpy 1.x
+
+# web server
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+
+# YouTube ingest — downloads audio + transcodes to mp3 via ffmpeg (already required)
+yt-dlp>=2024.0.0
+
+# stem separation (Demucs v4 — torch comes from step 1)
+demucs>=4.0.1
+
+# audio→MIDI: the ONNX runtime basic-pitch uses instead of TensorFlow, plus
+# basic-pitch's own runtime deps (needed because step 3 uses --no-deps).
+onnxruntime>=1.17
+onnx>=1.15
+librosa>=0.10
+pretty_midi>=0.2.9
+mir_eval>=0.6
+resampy>=0.4
+scikit-learn>=1.3
+soundfile>=0.12
+scipy>=1.11              # band-pass filter for the librosa drum fallback
+
+# drum transcription (step 4 — optional but recommended):
+#   pip install madmom ADTLib
+# madmom requires numpy<2 (already pinned above). Falls back to librosa
+# multi-band onset detection if not installed.
+# madmom>=0.16.1
+# ADTLib

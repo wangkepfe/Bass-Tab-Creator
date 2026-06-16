@@ -4,3 +4,10 @@ Thumbs.db
 *.log
 .claude/
 .vscode/
+# python backend
+bass-studio/server/.venv/
+__pycache__/
+# scratch / generated
+_work/
+# saved projects (the app's local database)
+projects/
