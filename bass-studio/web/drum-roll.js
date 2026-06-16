@@ -435,7 +435,8 @@ var DrumRoll = (function () {
       }
       if (inGrid(x, y)) {
         if (st.tool === 'draw') { canvas.style.cursor = 'crosshair'; return; }
-        canvas.style.cursor = hitAtXY(x, y) ? 'grab' : 'default';
+        // select tool: grab over a hit, else crosshair to hint click-to-seek
+        canvas.style.cursor = hitAtXY(x, y) ? 'grab' : (onSeek ? 'crosshair' : 'default');
         return;
       }
       canvas.style.cursor = 'default';
@@ -572,11 +573,11 @@ var DrumRoll = (function () {
           var ev = st.events.find(function (ev) { return ev._id === id; });
           if (ev) origT[id] = ev.time_sec;
         });
-        drag = { mode: 'move', mt0: xToTime(p.x), origT: origT, pre: snap_(), moved: false };
+        drag = { mode: 'move', mt0: xToTime(p.x), origT: origT, pre: snap_(), moved: false, shift: shift };
         canvas.setPointerCapture(e.pointerId);
       } else {
         if (!shift) st.sel.clear();
-        drag = { mode: 'rubber', rect: { x0: p.x, y0: p.y, x1: p.x, y1: p.y } };
+        drag = { mode: 'rubber', rect: { x0: p.x, y0: p.y, x1: p.x, y1: p.y }, shift: shift };
         canvas.setPointerCapture(e.pointerId);
       }
       render();
@@ -601,17 +602,26 @@ var DrumRoll = (function () {
           st.events.forEach(function (ev) {
             if (st.sel.has(ev._id) && drag.origT[ev._id] !== undefined) ev.time_sec = drag.origT[ev._id];
           });
+          // a plain (non-shift) click on a hit ALSO seeks, so a click in the dense
+          // grid always moves the playhead — not just a click on an empty cell.
+          if (onSeek && !drag.shift) onSeek(Math.max(0, drag.mt0));
         }
       } else if (drag.mode === 'rubber' && e) {
         var r  = drag.rect;
-        var t0 = xToTime(Math.min(r.x0, r.x1)), t1 = xToTime(Math.max(r.x0, r.x1));
-        var li0 = Math.max(0, yToLane(Math.min(r.y0, r.y1)));
-        var li1 = Math.min(LANES.length - 1, yToLane(Math.max(r.y0, r.y1)));
-        if (!e.shiftKey) st.sel.clear();
-        st.events.forEach(function (ev) {
-          var li = DrumTabCore.TYPE_TO_IDX[ev.type];
-          if (li >= li0 && li <= li1 && ev.time_sec >= t0 && ev.time_sec <= t1) st.sel.add(ev._id);
-        });
+        // A plain click on empty grid (no drag) seeks the playhead — same feel as
+        // the bass tab / the header ruler. A real drag rubber-band-selects.
+        if (Math.abs(r.x1 - r.x0) <= 3 && Math.abs(r.y1 - r.y0) <= 3) {
+          if (onSeek && !drag.shift && r.x0 >= LABEL_W) onSeek(Math.max(0, xToTime(r.x0)));
+        } else {
+          var t0 = xToTime(Math.min(r.x0, r.x1)), t1 = xToTime(Math.max(r.x0, r.x1));
+          var li0 = Math.max(0, yToLane(Math.min(r.y0, r.y1)));
+          var li1 = Math.min(LANES.length - 1, yToLane(Math.max(r.y0, r.y1)));
+          if (!e.shiftKey) st.sel.clear();
+          st.events.forEach(function (ev) {
+            var li = DrumTabCore.TYPE_TO_IDX[ev.type];
+            if (li >= li0 && li <= li1 && ev.time_sec >= t0 && ev.time_sec <= t1) st.sel.add(ev._id);
+          });
+        }
       }
       drag = null;
       render();

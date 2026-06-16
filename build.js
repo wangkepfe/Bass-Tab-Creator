@@ -59,6 +59,7 @@ fs.writeFileSync(path.join(OUT, '_headers'),
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
+  Cache-Control: no-cache
 /config.js
   Cache-Control: no-store
 /assets/manifest.json
