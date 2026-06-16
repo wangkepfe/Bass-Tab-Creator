@@ -1,14 +1,15 @@
 /* ============================================================================
- * build.js — assemble dist/ for Cloudflare Pages. Node >= 18, zero dependencies.
+ * build.js — assemble dist/ for Cloudflare Pages OR Workers static assets.
+ * Node >= 18, zero dependencies.
  *
- *   dist/                 <- published by Cloudflare Pages (Build output directory)
+ *   dist/                 <- published (Pages output dir, or Workers assets.directory)
  *     <web app files>     <- copied from bass-studio/web/
  *     config.js           <- generated: bakes in STUDIO_API_BASE + STUDIO_TOKEN
  *     assets/             <- the static "asset library" (MIDI/JSON only; see below)
- *     _headers, _redirects
+ *     _headers
  *
  * The backend (your local machine behind a Cloudflare Tunnel) is configured via
- * Pages environment variables, NOT committed into the repo:
+ * build-time environment variables, NOT committed into the repo:
  *   STUDIO_API_BASE   the tunnel ORIGIN, e.g. https://api.example.com
  *                     (no trailing /api). Empty => same-origin (local serving).
  *   STUDIO_TOKEN      the shared secret matching the backend's STUDIO_API_TOKEN.
@@ -57,8 +58,8 @@ const seed = 'window.STUDIO_CONFIG = ' + JSON.stringify({ apiBase, token }) + ';
 fs.writeFileSync(path.join(OUT, 'config.js'),
   seed + fs.readFileSync(path.join(WEB, 'config.js'), 'utf8'));
 
-// 4. Cloudflare Pages _headers (security + asset caching) and _redirects.
-//    NOTE: CORS is enforced by the FastAPI backend on the tunnel origin — NOT here.
+// 4. _headers (security + asset caching). Honored by both Pages and Workers static
+//    assets. NOTE: CORS is enforced by the FastAPI backend on the tunnel origin.
 fs.writeFileSync(path.join(OUT, '_headers'),
 `/*
   X-Frame-Options: DENY
@@ -69,12 +70,10 @@ fs.writeFileSync(path.join(OUT, '_headers'),
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 `);
-// Legacy /studio /drums entry points -> root; everything else falls back to the SPA.
-fs.writeFileSync(path.join(OUT, '_redirects'),
-`/studio/* / 301
-/drums/* / 301
-/* /index.html 200
-`);
+// No _redirects file: a `/* /index.html 200` SPA rule is rejected by Cloudflare
+// Workers static assets as an "infinite loop". Unknown-path handling is done via
+// not_found_handling in wrangler.jsonc (Workers); a single-page app needs nothing
+// extra on Pages.
 
 console.log('Built dist/  apiBase=' + (apiBase || '(same-origin)') +
   '  token=' + (token ? '(set)' : '(none)') + '  assetExts=' + ASSET_EXTS.join(','));

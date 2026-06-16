@@ -1,0 +1,13 @@
+{
+  // Cloudflare Workers static-assets config (no Worker script — assets only).
+  // `name` MUST match the Worker created in the dashboard, or `wrangler deploy`
+  // targets a different Worker. build.js emits the site into ./dist.
+  "name": "band-tab-studio",
+  "compatibility_date": "2026-06-16",
+  "assets": {
+    "directory": "./dist",
+    // Serve index.html for unknown paths (single-page app). This replaces the
+    // `/* /index.html 200` _redirects rule, which Workers rejects as a loop.
+    "not_found_handling": "single-page-application"
+  }
+}
