@@ -86,6 +86,7 @@ var DrumRoll = (function () {
       tool:     'select',  // 'select' | 'draw'
       snap:     true,
       gridSub:  16,        // 4 / 8 / 16 / 32
+      gridOffset: 0,       // bar-grid shift in seconds (notes stay put, the grid moves)
     };
 
     var history = [], future = [];
@@ -108,8 +109,8 @@ var DrumRoll = (function () {
 
     function snapTime(t) {
       if (!st.snap || !st.data || !st.data.tempo) return Math.max(0, t);
-      var g = (60 / st.data.tempo) / (st.gridSub / 4);
-      return Math.max(0, Math.round(t / g) * g);
+      var g = (60 / st.data.tempo) / (st.gridSub / 4), o = st.gridOffset || 0;
+      return Math.max(0, Math.round((t - o) / g) * g + o);   // snap relative to the (shifted) bar grid
     }
 
     function hitW() { return Math.max(5, st.zoom / 18); }
@@ -217,6 +218,23 @@ var DrumRoll = (function () {
       render();
     }
 
+    // Advanced quantize (whole track) via QuantizeCore — swing / bias / strength.
+    // Quantizes relative to the shifted bar grid so it respects the grid offset.
+    function quantizeAdvanced(o) {
+      if (!st.events.length) return 0;
+      commit(snap_());
+      var g = o.gridSec, origin = st.gridOffset || 0;
+      st.events.forEach(function (ev) {
+        var nt = QuantizeCore.snap((ev.time_sec || 0) - origin, g, o) + origin;
+        ev.time_sec = Math.max(0, nt);
+      });
+      st.events.sort(function (a, b) { return a.time_sec - b.time_sec; });
+      st.sel.clear();
+      if (onEdit) onEdit(st.events);
+      render();
+      return st.events.length;
+    }
+
     // ---- rendering -----------------------------------------------------------
     function render() {
       cx.clearRect(0, 0, W, H);
@@ -245,30 +263,30 @@ var DrumRoll = (function () {
 
     function drawGrid() {
       if (!st.data || !st.data.tempo) return;
-      var spb = 60 / st.data.tempo;
+      var spb = 60 / st.data.tempo, o = st.gridOffset || 0;
       var t0  = xToTime(LABEL_W) - spb;
       var t1  = xToTime(W) + spb;
       var top = HEADER_H, bot = velTop();
 
-      // subdivision grid lines (faint)
+      // subdivision grid lines (faint) — indexed from the (shifted) grid origin
       if (st.gridSub > 4 && st.zoom > 40) {
         var spg = spb / (st.gridSub / 4);
-        var gS = Math.floor(t0 / spg), gE = Math.ceil(t1 / spg);
+        var gS = Math.floor((t0 - o) / spg), gE = Math.ceil((t1 - o) / spg);
         cx.strokeStyle = 'rgba(43,50,64,0.6)'; cx.lineWidth = 0.5;
         for (var g = gS; g <= gE; g++) {
-          var gx = timeToX(g * spg);
+          var gx = timeToX(o + g * spg);
           if (gx < LABEL_W || gx > W) continue;
-          if (g % (st.gridSub / 4) === 0) continue; // beat lines drawn below
+          if (((g % (st.gridSub / 4)) + (st.gridSub / 4)) % (st.gridSub / 4) === 0) continue; // beat lines drawn below
           cx.beginPath(); cx.moveTo(gx, top); cx.lineTo(gx, bot); cx.stroke();
         }
       }
 
       // beat / bar lines
-      var bS = Math.floor(t0 / spb), bE = Math.ceil(t1 / spb);
+      var bS = Math.floor((t0 - o) / spb), bE = Math.ceil((t1 - o) / spb);
       for (var b = bS; b <= bE; b++) {
-        var bx = timeToX(b * spb);
+        var bx = timeToX(o + b * spb);
         if (bx < LABEL_W - 1 || bx > W + 1) continue;
-        var isBar = (b % 4 === 0);
+        var isBar = ((b % 4) + 4) % 4 === 0;
         cx.strokeStyle = isBar ? C.line : C.line2;
         cx.lineWidth   = isBar ? 1.0    : 0.5;
         cx.beginPath(); cx.moveTo(bx, top); cx.lineTo(bx, bot); cx.stroke();
@@ -368,19 +386,19 @@ var DrumRoll = (function () {
       cx.fillRect(LABEL_W, HEADER_H - 1, W - LABEL_W, 1);
       if (!st.data || !st.data.tempo) return;
 
-      var spb = 60 / st.data.tempo, spbar = spb * 4;
+      var spb = 60 / st.data.tempo, spbar = spb * 4, o = st.gridOffset || 0;
       var t0  = xToTime(LABEL_W) - spbar, t1 = xToTime(W) + spbar;
-      var bS  = Math.floor(t0 / spbar), bE = Math.ceil(t1 / spbar);
+      var bS  = Math.floor((t0 - o) / spbar), bE = Math.ceil((t1 - o) / spbar);
 
       cx.textBaseline = 'middle'; cx.textAlign = 'left';
       for (var bar = bS; bar <= bE; bar++) {
-        var bx = timeToX(bar * spbar);
+        var bx = timeToX(o + bar * spbar);
         if (bx > W + 1) break;
-        if (bx < LABEL_W - 1) continue;
+        if (bx < LABEL_W - 1 || bar < 0) continue;   // don't number bars left of the grid origin
         cx.font = 'bold 11px monospace'; cx.fillStyle = C.ink;
         cx.fillText(bar + 1, bx + 3, HEADER_H / 2);
         for (var beat = 1; beat < 4; beat++) {
-          var bx2 = timeToX(bar * spbar + beat * spb);
+          var bx2 = timeToX(o + bar * spbar + beat * spb);
           if (bx2 > LABEL_W && bx2 < W) {
             cx.font = '10px monospace'; cx.fillStyle = C.muted;
             cx.fillText(beat + 1, bx2 + 2, HEADER_H / 2);
@@ -701,6 +719,7 @@ var DrumRoll = (function () {
         st.events = (drumData.events || []).map(function (ev) {
           return Object.assign({ _id: _uid++ }, ev);
         });
+        st.gridOffset = drumData.gridOffset || 0;
         st.sel.clear();
         st.scrollX = 0;
         history = []; future = [];
@@ -710,6 +729,7 @@ var DrumRoll = (function () {
 
       clearData: function () {
         st.data = null; st.events = []; st.sel.clear(); st.scrollX = 0;
+        st.gridOffset = 0;
         history = []; future = []; notifyHist(); render();
       },
 
@@ -727,6 +747,10 @@ var DrumRoll = (function () {
       setTool:    function (t) { applyTool(t); },
       setSnap:    function (on) { st.snap = on; },
       setGridSub: function (n) { st.gridSub = n; render(); },
+      setGridOffset: function (s) { st.gridOffset = s || 0; render(); },
+      getGridOffset: function () { return st.gridOffset || 0; },
+      quantizeAdvanced: quantizeAdvanced,
+      getGridSub: function () { return st.gridSub; },
 
       zoomIn:  function () { applyZoom(st.zoom * 1.5); },
       zoomOut: function () { applyZoom(st.zoom / 1.5); },

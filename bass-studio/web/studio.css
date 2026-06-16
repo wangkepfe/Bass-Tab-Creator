@@ -122,6 +122,31 @@ audio{height:34px;max-width:340px;width:100%;margin-top:2px}
   border-top:1px solid var(--line);pointer-events:none;height:22px}
 .statusbar .grow{flex:1}
 
+/* ============ drum tab: grid + traditional sheet split ============ */
+#paneDrumTab .drum-split{position:absolute;inset:0;display:flex;flex-direction:column;min-height:0}
+.drum-grid-wrap{position:relative;flex:1 1 auto;min-height:0}
+/* when the sheet is shown the grid keeps the top ~58%, the sheet the rest */
+body.sheet-on .drum-grid-wrap{flex:1 1 58%}
+.drum-sheet-wrap{flex:0 0 42%;min-height:130px;display:flex;flex-direction:column;
+  border-top:1px solid var(--line);background:#0b0f15}
+.ds-head{display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:11px;text-transform:uppercase;
+  letter-spacing:.05em;color:var(--muted);background:var(--panel);border-bottom:1px solid var(--line)}
+.drum-sheet{flex:1;overflow:auto;padding:10px 14px}
+.drum-sheet svg.ds-system{display:block;margin:0 0 4px}
+.ds-empty{color:var(--muted);text-align:center;padding:30px 16px;font-size:12.5px}
+
+/* ============ quantize overlay ============ */
+.qz-card{max-width:440px;display:flex;flex-direction:column}
+.qz-body{display:flex;flex-direction:column;gap:4px;margin:6px 0 2px}
+.qz-row{display:grid;grid-template-columns:108px 1fr 52px;align-items:center;gap:10px;padding:6px 2px;font-size:12.5px}
+.qz-row>span{color:var(--muted)}
+.qz-row b{font-family:var(--mono);font-size:12px;text-align:right;color:var(--ink)}
+.qz-row.chk{display:flex;gap:8px;color:var(--muted);cursor:pointer}
+.qz-row select{width:100%}
+.qz-row input[type=range]{width:100%;accent-color:var(--accent)}
+.qz-note{font-size:11px;color:var(--muted);padding:0 2px 6px;border-bottom:1px solid rgba(43,50,64,.4)}
+.qz-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
+
 /* ============ help overlay ============ */
 .overlay{position:fixed;inset:0;background:rgba(2,5,11,.66);display:flex;align-items:center;justify-content:center;z-index:40;padding:20px}
 .overlay-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;max-width:880px;width:100%;padding:18px 20px}

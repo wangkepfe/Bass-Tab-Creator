@@ -62,7 +62,7 @@
   var drumRoll = DrumRoll.create($('drumCanvas'), {
     onEdit: function (events) {
       if (drumData) { drumData.events = events; drumData.duration = Math.max(drumData.duration || 0, drumEnd(events)); Transport.setDrumDuration(drumData.duration); }
-      Transport.setDrumEvents(events); scheduleSave();
+      Transport.setDrumEvents(events); renderDrumSheet(); scheduleSave();
     },
     onHistory: function (u, r) { $('dUndo').disabled = !u; $('dRedo').disabled = !r; },
     onTool: function (t) { dToolUI(t); },   // keep the toolbar in sync with keyboard tool changes (B/V)
@@ -132,7 +132,7 @@
   function serializeActive() {
     var id = project.activeTrackId; if (!id) return;
     var t = project.tracks[id]; if (!t) return;
-    if (t.kind === 'drum') { t.events = drumRoll.getEvents(); t.duration = Math.max(t.duration || 0, drumEnd(t.events)); }
+    if (t.kind === 'drum') { t.events = drumRoll.getEvents(); t.duration = Math.max(t.duration || 0, drumEnd(t.events)); t.gridOffset = drumRoll.getGridOffset(); if (drumData) t.tempo = drumData.tempo; }
     else {
       var pj = roll.getProject();
       t.notes = pj.notes; t.ppq = pj.ppq; t.tempo = pj.tempo; t.timeSig = pj.timeSig;
@@ -149,12 +149,16 @@
     $('targetSel').value = t.instrument; applyTarget();
     updateViewAvailability(t.instrument);
     if (t.kind === 'drum') {
-      drumData = { events: t.events || [], tempo: t.tempo || 120, duration: Math.max(t.duration || 0, drumEnd(t.events)), adtlib: false };
+      drumData = { events: t.events || [], tempo: t.tempo || 120, duration: Math.max(t.duration || 0, drumEnd(t.events)), gridOffset: t.gridOffset || 0, adtlib: false };
       drumRoll.setData(drumData); drumRoll.zoomFit();
       Transport.setDrumEvents(drumData.events); Transport.setDrumDuration(drumData.duration);
+      Transport.setDrumTempo(drumData.tempo); Transport.setDrumGridOffset(drumData.gridOffset);
+      $('dGridShift').value = drumData.gridOffset;
+      $('bpmInput').value = Math.round(drumData.tempo);   // the transport BPM box reflects the drum tempo
       show($('drumEmpty'), !(t.events && t.events.length));
       setStemAudio(t.stem);
       setView('drumtab');
+      renderDrumSheet();
     } else {
       roll.load({ ppq: t.ppq || 480, tempo: t.tempo || 120, timeSig: t.timeSig || { num: 4, den: 4 }, notes: t.notes || [] });
       $('bpmInput').value = Math.round(t.tempo || 120);
@@ -301,7 +305,7 @@
   function serializeMeta() {
     var tracks = trackList().map(function (t) {
       var o = { id: t.id, instrument: t.instrument, kind: t.kind, name: t.name };
-      if (t.kind === 'drum') { o.events = (t.events || []).map(function (e) { return { time_sec: e.time_sec, type: e.type, velocity: e.velocity }; }); o.tempo = t.tempo || 120; o.duration = t.duration || 0; }
+      if (t.kind === 'drum') { o.events = (t.events || []).map(function (e) { return { time_sec: e.time_sec, type: e.type, velocity: e.velocity }; }); o.tempo = t.tempo || 120; o.duration = t.duration || 0; o.gridOffset = t.gridOffset || 0; }
       else { o.notes = t.notes || []; o.ppq = t.ppq || 480; o.tempo = t.tempo || 120; o.timeSig = t.timeSig || { num: 4, den: 4 }; o.view = t.view || {}; o.overrides = t.overrides || {}; }
       if (t.stem && t.stem.file) o.stem = { file: t.stem.file, name: t.stem.name };
       return o;
@@ -408,7 +412,7 @@
         } else { show($('songMeta'), false); $('songAudio').removeAttribute('src'); Workflow.reset(); }
         (meta.tracks || []).forEach(function (t) {
           var tr = { id: t.id || t.instrument, instrument: t.instrument, kind: t.kind, name: t.name || instLabel(t.instrument) };
-          if (t.kind === 'drum') { tr.events = t.events || []; tr.tempo = t.tempo || 120; tr.duration = t.duration || 0; }
+          if (t.kind === 'drum') { tr.events = t.events || []; tr.tempo = t.tempo || 120; tr.duration = t.duration || 0; tr.gridOffset = t.gridOffset || 0; }
           else { tr.notes = t.notes || []; tr.ppq = t.ppq || 480; tr.tempo = t.tempo || 120; tr.timeSig = t.timeSig || { num: 4, den: 4 }; tr.view = t.view || {}; tr.overrides = t.overrides || {}; }
           if (t.stem && t.stem.file) tr.stem = { name: t.stem.name, file: t.stem.file, url: audUrl(t.stem.file), blob: null };
           project.tracks[tr.id] = tr;
@@ -558,13 +562,19 @@
   }
   ['songAudio', 'stemAudio'].forEach(function (id) { var el = $(id); if (el) ['loadeddata', 'canplay', 'emptied'].forEach(function (ev) { el.addEventListener(ev, refreshSrcButtons); }); });
 
-  $('bpmInput').addEventListener('change', function () { roll.setTempo(+this.value || 120); });
+  $('bpmInput').addEventListener('change', function () {
+    var v = +this.value || 120, t = project.tracks[project.activeTrackId];
+    if (t && t.kind === 'drum') {   // drums own their own tempo (the grid + sheet + metronome all key off it)
+      t.tempo = v; if (drumData) drumData.tempo = v;
+      Transport.setDrumTempo(v); drumRoll.render(); renderDrumSheet(); scheduleSave();
+    } else { roll.setTempo(v); }
+  });
   function setTS() { roll.setTimeSig(+$('tsNum').value || 4, +$('tsDen').value || 4); }
   $('tsNum').addEventListener('change', setTS); $('tsDen').addEventListener('change', setTS);
 
   // any blocking dialog is open → editor/global hotkeys should stand down so e.g.
   // Esc-to-close-Help doesn't also clear the selection in the editor behind it.
-  function isModalOpen() { return $('helpOverlay').style.display !== 'none' || $('libOverlay').style.display !== 'none'; }
+  function isModalOpen() { return $('helpOverlay').style.display !== 'none' || $('libOverlay').style.display !== 'none' || $('qzOverlay').style.display !== 'none'; }
   document.addEventListener('keydown', function (e) {
     if (e.code !== 'Space' && e.key !== ' ') return;
     var tag = (document.activeElement && document.activeElement.tagName) || '';
@@ -637,8 +647,41 @@
   $('dToolSelect').onclick = function () { drumRoll.setTool('select'); };   // setTool fires onTool → dToolUI
   $('dToolDraw').onclick = function () { drumRoll.setTool('draw'); };
   $('dSnap').addEventListener('change', function () { drumRoll.setSnap(this.checked); });
-  $('dGridSub').addEventListener('change', function () { drumRoll.setGridSub(+this.value); });
+  $('dGridSub').addEventListener('change', function () { drumRoll.setGridSub(+this.value); renderDrumSheet(); });
   $('dUndo').onclick = function () { drumRoll.undo(); }; $('dRedo').onclick = function () { drumRoll.redo(); };
+
+  /* ---- drum bar-grid shift (move the grid, not the notes — re-align to audio) ---- */
+  function applyDrumGridOffset(sec) {
+    sec = Math.round((+sec || 0) * 1000) / 1000;
+    drumRoll.setGridOffset(sec);
+    if (drumData) drumData.gridOffset = sec;
+    Transport.setDrumGridOffset(sec);
+    $('dGridShift').value = sec;
+    renderDrumSheet(); scheduleSave();
+  }
+  $('dGridShift').addEventListener('change', function () { applyDrumGridOffset(this.value); });
+  $('dShiftL').onclick = function () { applyDrumGridOffset(drumRoll.getGridOffset() - 0.01); };
+  $('dShiftR').onclick = function () { applyDrumGridOffset(drumRoll.getGridOffset() + 0.01); };
+
+  /* ---- traditional drum sheet (quantized staff below the grid) ---- */
+  var sheetOn = false;
+  function renderDrumSheet() {
+    if (!sheetOn) return;
+    var host = $('drumSheet'); if (!host) return;
+    DrumSheet.render(host, {
+      events: drumRoll.getEvents(),
+      tempo: (drumData && drumData.tempo) || 120,
+      gridOffset: drumRoll.getGridOffset(),
+      gridSub: drumRoll.getGridSub(),
+      tsNum: 4, barsPerLine: 4
+    });
+  }
+  $('dSheetChk').addEventListener('change', function () {
+    sheetOn = this.checked;
+    show($('drumSheetWrap'), sheetOn);
+    document.body.classList.toggle('sheet-on', sheetOn);
+    renderDrumSheet();
+  });
   $('dZoomIn').onclick = function () { drumRoll.zoomIn(); }; $('dZoomOut').onclick = function () { drumRoll.zoomOut(); }; $('dZoomFit').onclick = function () { drumRoll.zoomFit(); };
   $('dDlJson').onclick = function () {
     if (!drumData) return;
@@ -678,13 +721,83 @@
     if (t && t.kind === 'drum') { exportDrumMidi(); return; }
     download(MidiIO.write(roll.getProject()), (project.name || 'studio') + '.mid', 'audio/midi');
   };
+  /* ====================== quantize modal (all instrument types) ====================== */
+  (function () {
+    var sel = $('qzGrid'); if (!sel) return;
+    QuantizeCore.GRIDS.forEach(function (g) {
+      var o = document.createElement('option'); o.value = g.value; o.textContent = g.label; sel.appendChild(o);
+    });
+    sel.value = '16';
+  })();
+  function qzTriplet() { return QuantizeCore.find($('qzGrid').value).triplet; }
+  function qzSyncLabels() {
+    $('qzSwingVal').textContent = (+$('qzSwing').value) + '%';
+    var trip = qzTriplet();
+    $('qzSwing').disabled = trip;
+    $('qzSwingRow').style.opacity = trip ? 0.4 : 1;
+    $('qzSwingNote').textContent = trip ? 'swing doesn’t apply to a triplet grid'
+      : '50% = straight · 66% = triplet shuffle · 75% = hard shuffle';
+    var bias = +$('qzBias').value;
+    $('qzBiasVal').textContent = bias === 0 ? 'centre' : (bias < 0 ? '◄ ' + (-bias) + '%' : bias + '% ►');
+    $('qzStrengthVal').textContent = (+$('qzStrength').value) + '%';
+  }
+  ['qzSwing', 'qzBias', 'qzStrength'].forEach(function (id) { $(id).addEventListener('input', qzSyncLabels); });
+  $('qzGrid').addEventListener('change', qzSyncLabels);
+
+  function openQuantize() {
+    var t = project.tracks[project.activeTrackId];
+    if (!t) { flash('No track to quantize — add notes first.'); return; }
+    if (t.kind === 'drum') { $('qzGrid').value = String(drumRoll.getGridSub()); }
+    else { var m = { q: '4', '8': '8', '8t': '8t', '16': '16', '16t': '16t', '32': '32' }; $('qzGrid').value = m[$('gridSel').value] || '16'; }
+    $('qzTrackName').textContent = '· ' + (t.name || t.instrument);
+    show($('qzLengthsRow'), t.kind !== 'drum');
+    qzSyncLabels();
+    $('qzOverlay').style.display = '';
+  }
+  function closeQuantize() { $('qzOverlay').style.display = 'none'; }
+  function applyQuantize() {
+    var t = project.tracks[project.activeTrackId]; if (!t) { closeQuantize(); return; }
+    var gridV = $('qzGrid').value, trip = qzTriplet();
+    var o = {
+      swing: trip ? 0.5 : (+$('qzSwing').value) / 100,
+      bias: (+$('qzBias').value) / 100 * 0.5,           // −100..100% → −0.5..0.5 of a grid step
+      strength: (+$('qzStrength').value) / 100
+    };
+    if (t.kind === 'drum') {
+      o.gridSec = QuantizeCore.gridSeconds(gridV, (drumData && drumData.tempo) || 120);
+      var n = drumRoll.quantizeAdvanced(o);
+      // keep the drum grid-sub (and the read-only sheet, which renders against it) showing
+      // the grid we just snapped to — for the straight grids the sub can represent.
+      var straightSub = { '4': 4, '8': 8, '16': 16, '32': 32 }[gridV];
+      if (straightSub && drumRoll.getGridSub() !== straightSub) {
+        drumRoll.setGridSub(straightSub);
+        if ($('dGridSub')) $('dGridSub').value = String(straightSub);
+      }
+      renderDrumSheet();
+      flash('Quantized ' + n + ' drum hits.');
+    } else {
+      o.gridTicks = QuantizeCore.gridTicks(gridV, roll.stats().ppq);
+      o.lengths = $('qzLengths').checked;
+      var n2 = roll.quantizeAdvanced(o);
+      if (currentView === 'basstab') bassTab.render();
+      flash('Quantized ' + n2 + ' notes.');
+    }
+    closeQuantize(); scheduleSave();
+  }
+  $('btnQuantize').onclick = openQuantize;
+  $('qzApply').onclick = applyQuantize;
+  $('qzCancel').onclick = closeQuantize;
+  $('qzClose').onclick = closeQuantize;
+  $('qzOverlay').addEventListener('click', function (e) { if (e.target === this) closeQuantize(); });
+
   $('btnHelp').onclick = function () { showHelp(true); };
   $('helpClose').onclick = function () { showHelp(false); };
   $('helpOverlay').addEventListener('click', function (e) { if (e.target === this) showHelp(false); });
   function showHelp(on) { $('helpOverlay').style.display = on ? '' : 'none'; }
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    if ($('libOverlay').style.display !== 'none') closeLibrary();
+    if ($('qzOverlay').style.display !== 'none') $('qzOverlay').style.display = 'none';
+    else if ($('libOverlay').style.display !== 'none') closeLibrary();
     else if ($('helpOverlay').style.display !== 'none') showHelp(false);
   });
 

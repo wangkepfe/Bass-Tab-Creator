@@ -481,6 +481,22 @@ var PianoRoll = (function () {
       });
       changed();
     }
+    // Advanced quantize (whole song) via QuantizeCore — swing / bias / strength,
+    // optional length quantize. Operates on every note regardless of selection.
+    function quantizeAdvanced(o) {
+      if (!P.notes.length) return 0;
+      pushHistory(snapshot());
+      var g = o.gridTicks, lengths = !!o.lengths;
+      P.notes.forEach(function (n) {
+        var len = n.end - n.start;
+        var nt = Math.max(0, Math.round(QuantizeCore.snap(n.start, g, o)));
+        n.start = nt;
+        if (lengths) { var ql = Math.max(g, Math.round(len / g) * g); n.end = nt + ql; }
+        else n.end = nt + len;
+      });
+      changed();
+      return P.notes.length;
+    }
     function setGridTicks(t) { grid.ticks = t; scheduleDraw(); }
     function setSnap(on) { grid.snap = !!on; }
     function setTool(t) { tool = t; canvas.style.cursor = t === 'draw' ? 'crosshair' : 'default'; }
@@ -569,7 +585,7 @@ var PianoRoll = (function () {
       setGuides: setGuides,
       selectAll: selectAll, clearSel: clearSel, deleteSel: deleteSel,
       copy: copy, cut: cut, paste: paste, duplicate: duplicate,
-      transpose: transpose, quantize: quantize, undo: undoCmd, redo: redoCmd,
+      transpose: transpose, quantize: quantize, quantizeAdvanced: quantizeAdvanced, undo: undoCmd, redo: redoCmd,
       zoomTime: zoomTime, zoomPitch: zoomPitch, fitTime: fitTime, scrollToTick: scrollToTick,
       setPlayhead: setPlayhead, getPlayhead: function () { return playhead; },
       stats: function () { return { notes: P.notes.length, sel: sel.size, tempo: P.tempo, ppq: P.ppq, ts: P.timeSig, lengthTicks: P.lengthTicks }; },
