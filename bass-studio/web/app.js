@@ -239,24 +239,29 @@
   }
   function onDrumResult(data) { upsertDrums(data); flash((data.events || []).length + ' drum hits → Drums track.'); }
 
+  // Parse MIDI bytes into a track (drum channel → drum tab, else a melodic track).
+  // Shared by file import and the static example loader.
+  function importMidiBytes(bytes, opts) {
+    opts = opts || {};
+    var m = MidiIO.read(bytes);
+    var drumCh = m.notes.filter(function (n) { return n.channel === 9; }).length;
+    if (m.notes.length && drumCh / m.notes.length >= 0.5) {
+      var tps = (m.tempo / 60) * (m.ppq || 480);
+      var events = m.notes.map(function (n) { return { time_sec: n.start / tps, type: DrumTabCore.GM_TO_TYPE[n.pitch], velocity: n.velocity || 100 }; }).filter(function (e) { return e.type; });
+      var dur = m.notes.reduce(function (a, n) { return Math.max(a, n.end); }, 0) / tps;
+      upsertDrums({ events: events, tempo: m.tempo, duration: dur });
+      flash(events.length + ' drum hits imported.');
+    } else {
+      var inst = opts.instrument || (instKind(curTarget().id) === 'melodic' ? curTarget().id : 'bass');
+      upsertMelodic(inst, { notes: m.notes, ppq: m.ppq, tempo: m.tempo, timeSig: m.timeSig });
+      flash(m.notes.length + ' notes imported → ' + instLabel(inst) + '.');
+    }
+  }
   function openMidiFile(file) {
     var r = new FileReader();
     r.onload = function () {
-      try {
-        var m = MidiIO.read(new Uint8Array(r.result));
-        var drumCh = m.notes.filter(function (n) { return n.channel === 9; }).length;
-        if (m.notes.length && drumCh / m.notes.length >= 0.5) {
-          var tps = (m.tempo / 60) * (m.ppq || 480);
-          var events = m.notes.map(function (n) { return { time_sec: n.start / tps, type: DrumTabCore.GM_TO_TYPE[n.pitch], velocity: n.velocity || 100 }; }).filter(function (e) { return e.type; });
-          var dur = m.notes.reduce(function (a, n) { return Math.max(a, n.end); }, 0) / tps;
-          upsertDrums({ events: events, tempo: m.tempo, duration: dur });
-          flash(events.length + ' drum hits imported.');
-        } else {
-          var inst = instKind(curTarget().id) === 'melodic' ? curTarget().id : 'bass';
-          upsertMelodic(inst, { notes: m.notes, ppq: m.ppq, tempo: m.tempo, timeSig: m.timeSig });
-          flash(m.notes.length + ' notes imported → ' + instLabel(inst) + '.');
-        }
-      } catch (e) { flash('Could not read MIDI: ' + e.message); }
+      try { importMidiBytes(new Uint8Array(r.result)); }
+      catch (e) { flash('Could not read MIDI: ' + e.message); }
     };
     r.readAsArrayBuffer(file);
   }
@@ -307,7 +312,7 @@
     if (pendingUploads > 0) { clearTimeout(saveTimer); saveTimer = setTimeout(doSave, 300); return; }
     serializeActive();
     markSave('saving…');
-    fetch('/api/projects/' + project.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(serializeMeta()) })
+    fetch(Workflow.apiBase() + '/projects/' + project.id, { method: 'PUT', headers: Workflow.authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(serializeMeta()) })
       .then(function (r) { if (!r.ok) throw new Error('save failed'); return r.json(); })
       .then(function () { dirty = false; markSave('saved ✓'); })
       .catch(function () { markSave('save failed'); flash('Auto-save failed (backend offline?) — your edits are not saved.'); });
@@ -316,7 +321,7 @@
     if (!project.id || !project.song || !project.song.blob) return Promise.resolve();
     pendingUploads++;
     var fd = new FormData(); fd.append('file', project.song.blob, project.song.name || 'song.mp3'); fd.append('role', 'song');
-    return fetch('/api/projects/' + project.id + '/audio', { method: 'POST', body: fd })
+    return fetch(Workflow.apiBase() + '/projects/' + project.id + '/audio', { method: 'POST', body: fd, headers: Workflow.authHeaders() })
       .then(function (r) { if (!r.ok) throw new Error('upload failed'); return r.json(); })
       .then(function (j) { project.song.file = j.file; })
       .catch(function () { flash('Song upload failed — audio not saved.'); })
@@ -327,7 +332,7 @@
     if (!project.id || !t || !t.stem || !t.stem.blob) return Promise.resolve();
     pendingUploads++;
     var fd = new FormData(); fd.append('file', t.stem.blob, t.stem.name || (instrument + '.wav')); fd.append('role', 'stem'); fd.append('instrument', instrument);
-    return fetch('/api/projects/' + project.id + '/audio', { method: 'POST', body: fd })
+    return fetch(Workflow.apiBase() + '/projects/' + project.id + '/audio', { method: 'POST', body: fd, headers: Workflow.authHeaders() })
       .then(function (r) { if (!r.ok) throw new Error('upload failed'); return r.json(); })
       .then(function (j) { t.stem.file = j.file; })
       .catch(function () { flash('Stem upload failed — audio not saved.'); })
@@ -336,8 +341,11 @@
 
   function projectHasContent() { return !!(project.song || Object.keys(project.tracks).length); }
   function confirmDiscard() { return !(dirty && projectHasContent()) || confirm('Discard unsaved changes to the current project?'); }
-  function newProject() {
-    if (!confirmDiscard()) return;
+  // Returns true if it actually reset; false if the user cancelled the discard
+  // prompt — callers (loadExample/loadDemo) must bail on false or they'd clobber
+  // (and auto-save over) the project the user chose to keep.
+  function newProject(silent) {
+    if (!confirmDiscard()) return false;
     clearTimeout(saveTimer);
     if (project.song) revoke(project.song.url);
     trackList().forEach(function (t) { if (t.stem) revoke(t.stem.url); });
@@ -345,7 +353,8 @@
     $('projName').value = ''; $('ytUrl').value = ''; markSave('');
     show($('songMeta'), false); $('songAudio').removeAttribute('src'); show($('songAudioRow'), false);
     Transport.stop(); clearEditors(); renderTracks();
-    flash('New project.');
+    if (!silent) flash('New project.');
+    return true;
   }
   function saveProject() {
     if (project.id) { scheduleSaveNow(); return; }
@@ -353,7 +362,7 @@
     $('projName').value = project.name;
     var fd = new FormData(); fd.append('name', project.name);
     markSave('creating…');
-    fetch('/api/projects', { method: 'POST', body: fd })
+    fetch(Workflow.apiBase() + '/projects', { method: 'POST', body: fd, headers: Workflow.authHeaders() })
       .then(function (r) { if (!r.ok) throw new Error('create failed'); return r.json(); })
       .then(function (j) {
         project.id = j.id;
@@ -372,26 +381,32 @@
   function openProject(id) {
     if (!confirmDiscard()) return;
     clearTimeout(saveTimer);
-    fetch('/api/projects/' + id).then(function (r) { if (!r.ok) throw new Error('not found'); return r.json(); })
+    fetch(Workflow.apiBase() + '/projects/' + id, { headers: Workflow.authHeaders() }).then(function (r) { if (!r.ok) throw new Error('not found'); return r.json(); })
       .then(function (meta) {
         if (project.song) revoke(project.song.url);
         trackList().forEach(function (t) { if (t.stem) revoke(t.stem.url); });
         project = emptyProject();
         project.id = meta.id; project.name = meta.name || 'Untitled'; project.youtubeUrl = meta.youtubeUrl || '';
         $('projName').value = project.name; $('ytUrl').value = project.youtubeUrl;
-        var aud = '/api/projects/' + id + '/audio/';
+        // Saved-project audio lives on the (possibly cross-origin) backend; route
+        // through mediaUrl() so <audio>.src carries the ?token= the element can't
+        // send as a header.
+        var audUrl = function (file) {
+          var enc = String(file).split('/').map(encodeURIComponent).join('/');  // keep '/' separators, escape segments
+          return Workflow.mediaUrl('/api/projects/' + id + '/audio/' + enc);
+        };
         if (meta.song && meta.song.file) {
-          project.song = { name: meta.song.name, file: meta.song.file, url: aud + meta.song.file, blob: null };
+          project.song = { name: meta.song.name, file: meta.song.file, url: audUrl(meta.song.file), blob: null };
           $('songName').textContent = (meta.song.name || 'song') + (project.youtubeUrl ? '  ·  YouTube' : ''); show($('songMeta'), true);
           $('songAudio').src = project.song.url; show($('songAudioRow'), true);
           // materialize the song into a Blob so the pipeline can extract more tracks from it
-          fetch(project.song.url).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) { if (b) { project.song.blob = b; Workflow.adoptSong(b, project.song.name); } }).catch(function () { });
+          fetch(project.song.url, { headers: Workflow.authHeaders() }).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) { if (b) { project.song.blob = b; Workflow.adoptSong(b, project.song.name); } }).catch(function () { });
         } else { show($('songMeta'), false); $('songAudio').removeAttribute('src'); Workflow.reset(); }
         (meta.tracks || []).forEach(function (t) {
           var tr = { id: t.id || t.instrument, instrument: t.instrument, kind: t.kind, name: t.name || instLabel(t.instrument) };
           if (t.kind === 'drum') { tr.events = t.events || []; tr.tempo = t.tempo || 120; tr.duration = t.duration || 0; }
           else { tr.notes = t.notes || []; tr.ppq = t.ppq || 480; tr.tempo = t.tempo || 120; tr.timeSig = t.timeSig || { num: 4, den: 4 }; tr.view = t.view || {}; tr.overrides = t.overrides || {}; }
-          if (t.stem && t.stem.file) tr.stem = { name: t.stem.name, file: t.stem.file, url: aud + t.stem.file, blob: null };
+          if (t.stem && t.stem.file) tr.stem = { name: t.stem.name, file: t.stem.file, url: audUrl(t.stem.file), blob: null };
           project.tracks[tr.id] = tr;
         });
         renderTracks();
@@ -402,20 +417,44 @@
       .catch(function (e) { flash('Could not open project: ' + e.message); });
   }
   function deleteProject(id) {
-    fetch('/api/projects/' + id, { method: 'DELETE' }).then(function () {
+    fetch(Workflow.apiBase() + '/projects/' + id, { method: 'DELETE', headers: Workflow.authHeaders() }).then(function () {
       if (project.id === id) newProject();
       fetchProjects();
     }).catch(function () { flash('Could not delete project.'); });
   }
 
   /* ====================== project library ====================== */
-  var libProjects = [], libLoaded = false;
-  function openLibrary() { $('libOverlay').style.display = ''; $('libSearch').value = ''; libLoaded = false; renderLibrary(); fetchProjects(); setTimeout(function () { $('libSearch').focus(); }, 30); }
+  var libProjects = [], libLoaded = false, libExamples = null;
+  function openLibrary() { $('libOverlay').style.display = ''; $('libSearch').value = ''; libLoaded = false; renderLibrary(); fetchProjects(); loadExamples(); setTimeout(function () { $('libSearch').focus(); }, 30); }
   function closeLibrary() { $('libOverlay').style.display = 'none'; }
   function fetchProjects() {
-    fetch('/api/projects', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : { projects: [] }; })
+    fetch(Workflow.apiBase() + '/projects', { cache: 'no-store', headers: Workflow.authHeaders() }).then(function (r) { return r.ok ? r.json() : { projects: [] }; })
       .then(function (j) { libProjects = (j && j.projects) || []; libLoaded = true; renderLibrary(); })
       .catch(function () { libProjects = []; libLoaded = true; renderLibrary(); });
+  }
+  // Static asset library — bundled example tabs served alongside the frontend
+  // (same-origin /assets, no backend or token needed; works even when offline).
+  // isHtml: the SPA fallback (_redirects '/* /index.html 200') serves index.html
+  // with HTTP 200 for a MISSING asset — so a 200 alone doesn't mean the file
+  // exists. Reject HTML so a not-deployed asset fails clearly, not as MIDI garbage.
+  function isHtml(r) { return /text\/html/i.test(r.headers.get('content-type') || ''); }
+  function loadExamples() {
+    if (libExamples) { renderLibrary(); return; }
+    fetch('assets/manifest.json', { cache: 'force-cache' })
+      .then(function (r) { return (r.ok && !isHtml(r)) ? r.json() : null; })
+      .then(function (j) { libExamples = (j && j.examples) || []; renderLibrary(); })
+      .catch(function () { libExamples = []; });
+  }
+  function loadExample(ex) {
+    fetch('assets/' + encodeURIComponent(ex.file), { cache: 'force-cache' })
+      .then(function (r) { if (!r.ok || isHtml(r)) throw new Error('not deployed (HTTP ' + r.status + ')'); return r.arrayBuffer(); })
+      .then(function (buf) {
+        if (!newProject(true)) return;          // user cancelled the discard prompt
+        project.name = ex.name; $('projName').value = ex.name;
+        importMidiBytes(new Uint8Array(buf), { instrument: ex.instrument });
+        closeLibrary(); flash('Loaded example: ' + ex.name + ' — Save to keep it.');
+      })
+      .catch(function (e) { flash('Could not load "' + ex.name + '": ' + e.message); });
   }
   function renderLibrary() {
     var q = ($('libSearch').value || '').toLowerCase().trim();
@@ -438,17 +477,22 @@
         row.appendChild(open); row.appendChild(del); list.appendChild(row);
       });
     }
-    // pinned: built-in demo (works offline)
-    var demo = document.createElement('div'); demo.className = 'lib-item demo';
-    var db = document.createElement('button'); db.className = 'lib-open';
-    var dn = document.createElement('span'); dn.className = 'nm'; dn.textContent = 'Demo bass line';
-    var dm = document.createElement('span'); dm.className = 'meta'; dm.textContent = 'built-in · offline quick-start';
-    db.appendChild(dn); db.appendChild(dm); db.onclick = loadDemo;
-    demo.appendChild(db); list.appendChild(demo);
+    // pinned offline content: static asset-library examples + the built-in demo.
+    function pinned(name, meta, onClick) {
+      var row = document.createElement('div'); row.className = 'lib-item demo';
+      var b = document.createElement('button'); b.className = 'lib-open';
+      var nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = name;
+      var mt = document.createElement('span'); mt.className = 'meta'; mt.textContent = meta;
+      b.appendChild(nm); b.appendChild(mt); b.onclick = onClick;
+      row.appendChild(b); list.appendChild(row);
+    }
+    (libExamples || []).filter(function (e) { return !q || (e.name || '').toLowerCase().indexOf(q) >= 0; })
+      .forEach(function (e) { pinned(e.name, (e.instrument || 'bass') + ' · example tab', function () { loadExample(e); }); });
+    pinned('Demo bass line', 'built-in · offline quick-start', loadDemo);
   }
   function fmtDate(t) { if (!t) return '—'; try { return new Date(t * 1000).toLocaleString(); } catch (e) { return '—'; } }
   function loadDemo() {
-    newProject();
+    if (!newProject(true)) return;
     project.tracks.bass = { id: 'bass', instrument: 'bass', kind: 'melodic', name: 'Bass', view: {}, overrides: {},
       ppq: 480, tempo: 110, timeSig: { num: 4, den: 4 }, notes: exampleNotes() };
     renderTracks(); activateTrack('bass'); closeLibrary(); flash('Demo bass line loaded — Save to keep it.');

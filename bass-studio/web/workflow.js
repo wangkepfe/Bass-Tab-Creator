@@ -12,8 +12,20 @@
  * ========================================================================== */
 var Workflow = (function () {
   'use strict';
-  var API = '/api';
-  var API_CANDIDATES = ['/api', 'http://localhost:8000/api', 'http://127.0.0.1:8000/api'];
+  // Backend origin comes from window.STUDIO_CONFIG (config.js). '' => same-origin.
+  function cfgBase() { var b = (window.STUDIO_CONFIG && window.STUDIO_CONFIG.apiBase) || ''; return b ? b + '/api' : '/api'; }
+  function token() { return (window.STUDIO_CONFIG && window.STUDIO_CONFIG.token) || ''; }
+  // For fetch(): inject the bearer token (and merge any extra headers).
+  function authHeaders(extra) { var h = Object.assign({}, extra || {}); var t = token(); if (t) h.Authorization = 'Bearer ' + t; return h; }
+  // For <audio>.src / download hrefs, which CANNOT set headers — carry the token
+  // as a query param instead. `path` starts with '/api/...'; API already ends /api.
+  function mediaUrl(path) {
+    var u = API.replace(/\/api$/, '') + path, t = token();
+    return t ? u + (u.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(t) : u;
+  }
+  var API = cfgBase();
+  var API_CANDIDATES = ((window.STUDIO_CONFIG && window.STUDIO_CONFIG.apiCandidates) || [''])
+    .map(function (b) { return b ? b.replace(/\/+$/, '') + '/api' : '/api'; });
   var ctx = null, poller = null;
   var lastSong = null, lastSongName = 'audio', lastStemBlob = null, lastStemName = null, lastStemInstrument = '';
   var pendingYtUrl = '', backendOk = false, jobRunning = false;
@@ -50,7 +62,7 @@ var Workflow = (function () {
 
   // ---- backend status ------------------------------------------------------
   function probe(base) {
-    return fetch(base + '/health', { cache: 'no-store' })
+    return fetch(base + '/health', { cache: 'no-store', headers: authHeaders() })
       .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
   }
   function health() {
@@ -96,7 +108,7 @@ var Workflow = (function () {
     var fd = new FormData(); fd.append('url', url);
     jobRunning = true; setPipelineButtons();
     jobUI('queued', 'Downloading audio…', 0);
-    fetch(API + '/youtube', { method: 'POST', body: fd })
+    fetch(API + '/youtube', { method: 'POST', body: fd, headers: authHeaders() })
       .then(function (r) { return r.ok ? r.json() : r.json().then(function (j) { throw new Error(j.detail || 'request failed'); }); })
       .then(function (j) { startPolling(j.job_id, 'youtube', ''); })
       .catch(function (err) { jobError(err.message || 'Could not reach backend.'); });
@@ -137,7 +149,7 @@ var Workflow = (function () {
     var verb = kind === 'separate' ? 'Separating ' + T.label : kind === 'transcribe' ? 'Transcribing' : 'Isolating ' + T.label + ' + transcribing';
     jobRunning = true; setPipelineButtons();
     jobUI('queued', verb + '…', 0);
-    fetch(API + '/jobs', { method: 'POST', body: fd })
+    fetch(API + '/jobs', { method: 'POST', body: fd, headers: authHeaders() })
       .then(function (r) { return r.ok ? r.json() : r.json().then(function (j) { throw new Error(j.detail || 'request failed'); }); })
       .then(function (j) { startPolling(j.job_id, 'job', inst); })
       .catch(function (err) { jobError(err.message || 'Could not reach backend.'); });
@@ -146,7 +158,7 @@ var Workflow = (function () {
   function startPolling(id, mode, inst) {
     stopPolling();
     poller = setInterval(function () {
-      fetch(API + '/jobs/' + id).then(function (r) { return r.json(); }).then(function (j) {
+      fetch(API + '/jobs/' + id, { headers: authHeaders() }).then(function (r) { return r.json(); }).then(function (j) {
         jobUI(j.status, j.stage || j.status, j.progress || 0, j.elapsed);
         if (j.status === 'done') { stopPolling(); jobRunning = false; setPipelineButtons(); mode === 'youtube' ? onYouTubeDone(id, j) : onJobDone(id, j, inst); }
         else if (j.status === 'error') { stopPolling(); jobRunning = false; setPipelineButtons(); jobError(j.error || 'Processing failed.'); }
@@ -158,7 +170,7 @@ var Workflow = (function () {
 
   function onYouTubeDone(id, j) {
     var url = API + '/jobs/' + id + '/artifacts/song.mp3';
-    fetch(url).then(function (r) { return r.blob(); }).then(function (b) {
+    fetch(url, { headers: authHeaders() }).then(function (r) { return r.blob(); }).then(function (b) {
       var name = (j.title ? j.title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) : 'youtube') + '.mp3';
       pickSong(b, name, pendingYtUrl);
       jobUI('done', '✓ ' + (j.title || 'audio downloaded'), 1);
@@ -173,18 +185,18 @@ var Workflow = (function () {
     var dj = arts.find(function (a) { return a.name === 'drums.json'; });
     var tail = Promise.resolve();
     if (stem) tail = tail.then(function () {
-      return fetch(base + 'stem.wav').then(function (r) { return r.blob(); }).then(function (b) {
+      return fetch(base + 'stem.wav', { headers: authHeaders() }).then(function (r) { return r.blob(); }).then(function (b) {
         lastStemBlob = b; lastStemName = inst + '.wav'; lastStemInstrument = inst;
         ctx.onStem(b, lastStemName, inst); msg.push('stem ready');
       });
     });
     if (mid) tail = tail.then(function () {
-      return fetch(base + 'notes.mid').then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
+      return fetch(base + 'notes.mid', { headers: authHeaders() }).then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
         ctx.onMelodicMidi(new Uint8Array(buf), inst); msg.push('transcription loaded');
       });
     });
     if (dj) tail = tail.then(function () {
-      return fetch(base + 'drums.json').then(function (r) { return r.json(); }).then(function (data) {
+      return fetch(base + 'drums.json', { headers: authHeaders() }).then(function (r) { return r.json(); }).then(function (data) {
         ctx.onDrumData(data, 'drums'); msg.push('drum hits loaded');
       });
     });
@@ -203,6 +215,8 @@ var Workflow = (function () {
 
   return {
     init: init, isOnline: isOnline, adoptSong: adoptSong, reset: reset,
+    apiBase: function () { return API; },     // resolved /api base (single source of truth)
+    authHeaders: authHeaders, mediaUrl: mediaUrl,
     hasStem: function () { return !!lastStemBlob; },
     hasSong: function () { return !!lastSong; }
   };
