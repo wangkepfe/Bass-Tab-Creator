@@ -42,7 +42,10 @@ var Transport = (function () {
   function project() { return (cfg.getProject && cfg.getProject()) || { ppq: 480, tempo: 120 }; }
   function tps() { var p = project(); return (p.tempo / 60) * (p.ppq || 480); }   // ticks per second
   function audioEl() { return source === 'original' ? cfg.audios.original : source === 'stem' ? cfg.audios.stem : null; }
-  function activeMelodicView() { return view === 'basstab' ? cfg.views.basstab : cfg.views.pianoroll; }
+  // The melodic view that owns the playhead right now. Every non-drum view
+  // (pianoroll / basstab / guitartab / guitarchords) registers a setPlayheadTick,
+  // so route to the active one by name — falling back to the piano roll.
+  function activeMelodicView() { return cfg.views[view] || cfg.views.pianoroll; }
 
   // The "original" (song) source plays a downloaded <audio> file when one is
   // loaded; otherwise a YouTube video (the web app has no audio to download).
@@ -103,6 +106,8 @@ var Transport = (function () {
   function hidePlayhead() {
     if (cfg.views.pianoroll && cfg.views.pianoroll.setPlayheadTick) cfg.views.pianoroll.setPlayheadTick(0);
     if (cfg.views.basstab && cfg.views.basstab.setPlayheadTick) cfg.views.basstab.setPlayheadTick(-1);
+    if (cfg.views.guitartab && cfg.views.guitartab.setPlayheadTick) cfg.views.guitartab.setPlayheadTick(-1);
+    if (cfg.views.guitarchords && cfg.views.guitarchords.setPlayheadTick) cfg.views.guitarchords.setPlayheadTick(-1);
     if (cfg.views.drumtab && cfg.views.drumtab.setPlayheadSeconds) cfg.views.drumtab.setPlayheadSeconds(-1);
   }
   function emit() {

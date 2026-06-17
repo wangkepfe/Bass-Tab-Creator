@@ -182,6 +182,9 @@
       t.notes = pj.notes; t.ppq = pj.ppq; t.tempo = pj.tempo; t.timeSig = pj.timeSig;
       var tv = tabViewForInstrument(t.instrument);
       if (tv) { t.view = tv.getOptions(); t.overrides = tv.getOverrides(); }
+      // Guitar has two sub-views (6-string tab + chord charts). Remember which one
+      // is open and the chord ribbon's own options so both survive a track switch.
+      if (t.instrument === 'guitar') { t.activeView = currentView; t.chordView = guitarChords.getOptions(); }
     }
   }
 
@@ -214,11 +217,19 @@
         tv.setOptions(t.view || {});               // re-renders the tab
         syncTabToolbar(t.instrument, tv.getOptions());
       }
+      // Restore the chord ribbon's options (the chord view is a single shared
+      // instance, so reset to defaults when this track has none — never leak the
+      // previous track's settings).
+      if (t.instrument === 'guitar') {
+        var cv = t.chordView || { barsPerLine: 4, offsetTicks: 0 };
+        guitarChords.setOptions(cv); syncGuitarChordsToolbar(cv);
+      }
       Transport.rebuildMelodic();
       setStemAudio(t.stem);
-      // Auto-route guitar to chords vs 6-string tab by detected style (user can still switch tabs).
-      var mview = melodicViewFor(t.instrument);
-      if (t.instrument === 'guitar' && !opts.keepView) mview = defaultGuitarView(t.notes || [], t.ppq || 480);
+      // Restore the guitar sub-view the user last had open; a first-time track (no
+      // saved activeView) auto-routes by detected style. Bass/other map 1:1.
+      var mview = (t.instrument === 'guitar' && t.activeView) ? t.activeView : melodicViewFor(t.instrument);
+      if (t.instrument === 'guitar' && !t.activeView && !opts.keepView) mview = defaultGuitarView(t.notes || [], t.ppq || 480);
       setView(mview);
     }
     loading = wasLoading;
@@ -262,6 +273,7 @@
                              { id: leadId, name: 'Guitar (lead)', activate: false });
     if (t.stem) lead.stem = t.stem;                            // share the same guitar stem
     t.name = 'Guitar (rhythm)'; t.notes = parts.rhythm; t.view = {}; t.overrides = {};
+    t.activeView = null; t.chordView = {};                    // re-auto-route the chordal remainder (don't restore the pre-split sub-view)
     renderTracks();
     activateTrack(srcId);                                      // land on the rhythm/chords part
     flash('Split guitar → Lead (' + parts.lead.length + ') + Rhythm (' + parts.rhythm.length + ' notes).');
@@ -398,7 +410,7 @@
     var tracks = trackList().map(function (t) {
       var o = { id: t.id, instrument: t.instrument, kind: t.kind, name: t.name };
       if (t.kind === 'drum') { o.events = (t.events || []).map(function (e) { return { time_sec: e.time_sec, type: e.type, velocity: e.velocity }; }); o.tempo = t.tempo || 120; o.duration = t.duration || 0; o.gridOffset = t.gridOffset || 0; }
-      else { o.notes = t.notes || []; o.ppq = t.ppq || 480; o.tempo = t.tempo || 120; o.timeSig = t.timeSig || { num: 4, den: 4 }; o.view = t.view || {}; o.overrides = t.overrides || {}; }
+      else { o.notes = t.notes || []; o.ppq = t.ppq || 480; o.tempo = t.tempo || 120; o.timeSig = t.timeSig || { num: 4, den: 4 }; o.view = t.view || {}; o.overrides = t.overrides || {}; if (t.instrument === 'guitar') { if (t.activeView) o.activeView = t.activeView; o.chordView = t.chordView || {}; } }
       if (t.stem && t.stem.file) o.stem = { file: t.stem.file, name: t.stem.name };
       return o;
     });
@@ -508,7 +520,7 @@
         (meta.tracks || []).forEach(function (t) {
           var tr = { id: t.id || t.instrument, instrument: t.instrument, kind: t.kind, name: t.name || instLabel(t.instrument) };
           if (t.kind === 'drum') { tr.events = t.events || []; tr.tempo = t.tempo || 120; tr.duration = t.duration || 0; tr.gridOffset = t.gridOffset || 0; }
-          else { tr.notes = t.notes || []; tr.ppq = t.ppq || 480; tr.tempo = t.tempo || 120; tr.timeSig = t.timeSig || { num: 4, den: 4 }; tr.view = t.view || {}; tr.overrides = t.overrides || {}; }
+          else { tr.notes = t.notes || []; tr.ppq = t.ppq || 480; tr.tempo = t.tempo || 120; tr.timeSig = t.timeSig || { num: 4, den: 4 }; tr.view = t.view || {}; tr.overrides = t.overrides || {}; if (t.activeView) tr.activeView = t.activeView; if (t.chordView) tr.chordView = t.chordView; }
           if (t.stem && t.stem.file) tr.stem = { name: t.stem.name, file: t.stem.file, url: audUrl(t.stem.file), blob: null };
           project.tracks[tr.id] = tr;
         });
@@ -775,10 +787,16 @@
   if ($('gtSplit')) $('gtSplit').onclick = function () { splitGuitarTrack(project.activeTrackId); };
 
   /* ====================== guitar-chords toolbar (Tab Type 1) ====================== */
-  $('gcBars').addEventListener('change', function () { guitarChords.setOptions({ barsPerLine: +this.value || 4 }); });
-  $('gcOffset').addEventListener('change', function () { guitarChords.setOptions({ offsetTicks: Math.round(+this.value || 0) }); });
+  $('gcBars').addEventListener('change', function () { guitarChords.setOptions({ barsPerLine: +this.value || 4 }); scheduleSave(); });
+  $('gcOffset').addEventListener('change', function () { guitarChords.setOptions({ offsetTicks: Math.round(+this.value || 0) }); scheduleSave(); });
   $('gcCopy').onclick = function () { var a = guitarChords.getAscii && guitarChords.getAscii(); if (!a) { flash('No chords detected yet.'); return; } navigator.clipboard && navigator.clipboard.writeText(a); flash('Chord progression copied.'); };
   if ($('gcSplit')) $('gcSplit').onclick = function () { splitGuitarTrack(project.activeTrackId); };
+  // Reflect a track's saved chord-ribbon options back into the toolbar on restore.
+  function syncGuitarChordsToolbar(v) {
+    v = v || {};
+    if ($('gcBars')) $('gcBars').value = v.barsPerLine || 4;
+    if ($('gcOffset')) $('gcOffset').value = v.offsetTicks || 0;
+  }
   function updateChordInfo(st) { var e = $('gcInfo'); if (!e) return; e.textContent = st ? (st.count + ' changes · ' + st.unique + ' chords') : '—'; }
 
   /* ====================== drum-tab toolbar ====================== */
@@ -992,7 +1010,7 @@
 
   // debug/automation handle
   window.Studio = {
-    roll: roll, bassTab: bassTab, guitarTab: guitarTab, drumRoll: drumRoll, transport: Transport,
+    roll: roll, bassTab: bassTab, guitarTab: guitarTab, guitarChords: guitarChords, drumRoll: drumRoll, transport: Transport,
     getProject: function () { return project; }, activateTrack: activateTrack,
     newProject: newProject, saveProject: saveProject, openProject: openProject,
     onSong: onSong, onStem: onStem, onMelodicResult: onMelodicResult, onDrumResult: onDrumResult,
