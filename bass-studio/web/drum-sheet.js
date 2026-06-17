@@ -42,6 +42,12 @@ var DrumSheet = (function () {
   var INK = '#c9d4e2';
   var RINK = '#8b97a7';        // rest ink (dimmer)
 
+  // Playback-sync state (mirrors the modern grid's auto-follow, but vertically:
+  // the staff is a stack of systems, so we ride the playhead down line-by-line).
+  var _host = null;     // container of the last render (scroll box for the playhead)
+  var _layout = null;   // time → (system, x) mapping captured at render time
+  var _lastT = -1;      // last playhead time in seconds (re-applied after re-renders)
+
   function rowY(row) { return TOP + row * GAP; }
 
   // {beams, dotted} for a note that spans dCols grid columns; spq = columns per beat.
@@ -136,6 +142,7 @@ var DrumSheet = (function () {
     var barsPerLine = opts.barsPerLine || 4;
 
     if (!events.length) {
+      _host = container; _layout = null;
       container.innerHTML = '<div class="ds-empty">No drum hits yet — the staff appears once the track has notes.</div>';
       return;
     }
@@ -169,10 +176,11 @@ var DrumSheet = (function () {
     var colW   = Math.max(7, Math.round(46 / spq));
     var leftPad = 40, rightPad = 10;
 
-    var html = '';
+    var html = '', systems = [];
     for (var b0 = 0; b0 < totalBars; b0 += barsPerLine) {
       var b1 = Math.min(b0 + barsPerLine, totalBars);
       var startCol = b0 * barCols, stopCol = b1 * barCols;
+      systems.push({ startCol: startCol, stopCol: stopCol });
       var W = leftPad + (stopCol - startCol) * colW + rightPad;
       var H = DN_BEAM + 12;
       var X = (function (sc) { return function (col) { return leftPad + (col - sc) * colW; }; })(startCol);
@@ -207,6 +215,86 @@ var DrumSheet = (function () {
       html += svg;
     }
     container.innerHTML = html;
+
+    // Capture the time→position mapping so the playhead can ride along with
+    // playback, then re-place it (a render wipes the overlay div). Measure each
+    // system's content-box geometry ONCE here (batched reads — no per-frame
+    // re-measure / layout thrash) since SVG elements don't expose offsetTop. Don't
+    // scroll here — only playback (setPlayhead with playing=true) drives auto-follow.
+    _host = container;
+    var hr = container.getBoundingClientRect();
+    var svgEls = container.querySelectorAll('svg.ds-system');
+    var sTop = container.scrollTop, sLeft = container.scrollLeft;
+    for (var s = 0; s < systems.length; s++) {
+      var el = svgEls[s]; if (!el) continue;
+      var sr = el.getBoundingClientRect();
+      systems[s].top  = (sr.top  - hr.top)  + sTop;   // content-box coords (scroll-independent)
+      systems[s].left = (sr.left - hr.left) + sLeft;
+      systems[s].h    = sr.height;
+    }
+    _layout = {
+      stepSec: stepSec, offset: offset, colW: colW, leftPad: leftPad,
+      barCols: barCols, barsPerLine: barsPerLine, endCol: endCol, systems: systems
+    };
+    applyPlayhead(false);
+  }
+
+  // ---- playback sync ---------------------------------------------------------
+  // Place (and optionally auto-scroll to) a vertical playhead at song time `t`
+  // seconds. Mirrors the modern grid: only follows while `playing`, otherwise it
+  // just marks the spot so a seek/edit leaves the scroll position put.
+  function setPlayhead(t, playing) {
+    _lastT = (typeof t === 'number') ? t : -1;
+    applyPlayhead(!!playing);
+  }
+
+  function applyPlayhead(playing) {
+    if (!_host || !_layout) return;
+    var ph = _host.querySelector('.ds-playhead');
+    var t = _lastT, L = _layout;
+    function hide() { if (ph) ph.style.display = 'none'; }
+    if (t < 0) { hide(); return; }
+
+    var col = (t - L.offset) / L.stepSec;                 // fractional grid columns from the grid origin
+    if (col < 0 || col >= L.endCol) { hide(); return; }   // endCol is exclusive (cols 0..endCol-1)
+    var si = Math.floor(col / (L.barCols * L.barsPerLine));
+    var sys = L.systems[si];
+    if (!sys) { hide(); return; }
+
+    // Geometry was cached at render time. Fall back to a live bounding-rect measure
+    // if the staff was rendered while hidden (zero-size) so positions stay correct.
+    var sysTop = sys.top, sysLeft = sys.left, sysH = sys.h;
+    if (!sysH) {
+      var svg = _host.querySelectorAll('svg.ds-system')[si];
+      if (!svg) { hide(); return; }
+      var hr = _host.getBoundingClientRect(), sr = svg.getBoundingClientRect();
+      sysTop  = (sr.top  - hr.top)  + _host.scrollTop;
+      sysLeft = (sr.left - hr.left) + _host.scrollLeft;
+      sysH    = sr.height;
+    }
+    var x = L.leftPad + (col - sys.startCol) * L.colW;
+
+    if (!ph) { ph = document.createElement('div'); ph.className = 'ds-playhead'; _host.appendChild(ph); }
+    ph.style.display = 'block';
+    ph.style.left   = (sysLeft + x) + 'px';
+    ph.style.top    = sysTop + 'px';
+    ph.style.height = sysH + 'px';
+
+    if (playing) {
+      // Follow the playhead with a ~40% lead, but always keep the whole current
+      // system in view (it would otherwise clip when the pane is only a line tall).
+      var frac = (col - sys.startCol) / (sys.stopCol - sys.startCol);
+      var phY  = sysTop + frac * sysH;
+      var clientH = _host.clientHeight;
+      var desired = phY - clientH * 0.4;
+      if (sysH < clientH) {
+        desired = Math.min(desired, sysTop);                   // don't clip the top
+        desired = Math.max(desired, sysTop + sysH - clientH);  // don't clip the bottom
+      } else {
+        desired = sysTop;
+      }
+      _host.scrollTop = Math.max(0, Math.min(desired, _host.scrollHeight - clientH));
+    }
   }
 
   // Render one voice (notes + beams/flags + stems + rests) within a system.
@@ -299,5 +387,5 @@ var DrumSheet = (function () {
     return g;
   }
 
-  return { render: render };
+  return { render: render, setPlayhead: setPlayhead };
 })();

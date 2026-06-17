@@ -376,6 +376,7 @@
     var wasLoading = loading; loading = true;
     roll.load({ ppq: 480, tempo: 120, timeSig: { num: 4, den: 4 }, notes: [] });
     drumData = null; if (drumRoll.clearData) drumRoll.clearData(); show($('drumEmpty'), true);
+    renderDrumSheet();   // clear the staff to its empty-state (drops the playhead + stale layout)
     bassTab.setOverrides({}); bassTab.render(); guitarTab.setOverrides({}); guitarTab.render(); guitarChords.clear();
     setStemAudio(null); updateStats(); updateViewAvailability('bass'); setView('pianoroll');
     loading = wasLoading;
