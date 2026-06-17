@@ -189,7 +189,7 @@ var DrumTabCore = (function () {
     return out;
   }
 
-  return {
+  var api = {
     LANES:       LANES,
     TYPE_TO_IDX: TYPE_TO_IDX,
     GM_TO_TYPE:  GM_TO_TYPE,
@@ -197,4 +197,6 @@ var DrumTabCore = (function () {
     toAscii:     toAscii,
     fromMidiNotes: fromMidiNotes,
   };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  return api;
 })();

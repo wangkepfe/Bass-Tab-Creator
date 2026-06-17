@@ -284,9 +284,45 @@
     if (ChordCore.concurrency(notes) >= 0.5)
       flash('This guitar part plays rhythm + lead together — use “Split parts” to get two guitar tracks.');
   }
+  // Onset weights by drum role for tempo / bar-grid detection — kick & snare
+  // carry the pulse, hats & cymbals only colour it. (Kept in sync with the
+  // WEIGHT table in test-tempo.js.)
+  var DRUM_ONSET_WEIGHT = {
+    kick: 1.6, snare: 1.4, floor_tom: 1.1, tom1: 1.0, tom2: 1.0,
+    crash: 1.0, ride: 0.6, hihat: 0.6, hihat_open: 0.7
+  };
+  // Recover { tempo, gridOffset } from drum hits.
+  //   trustPrior=true  → an imported MIDI carries a reliable tempo, so keep it and
+  //                      detect only the bar-grid phase.
+  //   trustPrior=false → audio ingest (librosa/ADTOF): the autocorrelation pulse
+  //                      wins (it fixes librosa octave slips), falling back to
+  //                      priorBpm only when the estimate is too weak to believe.
+  // The offset is always phased against the tempo we KEEP — never a discarded one.
+  function autoDetectDrumGrid(events, priorBpm, trustPrior) {
+    var onsets = (events || []).map(function (e) {
+      return { t: e.time_sec, w: (DRUM_ONSET_WEIGHT[e.type] || 1) * ((e.velocity || 100) / 100) };
+    });
+    var t = TempoCore.detectTempo(onsets, { fallbackBpm: priorBpm || 120 });
+    var tempo = trustPrior ? (priorBpm || t.bpm)
+                           : (t.confidence >= 0.3 ? t.bpm : (priorBpm || t.bpm));
+    var g = TempoCore.detectGridOffset(onsets, { tsNum: 4, bpm: tempo });
+    return { tempo: tempo, gridOffset: Math.round(g.offsetSec * 1000) / 1000,
+             confidence: Math.min(t.confidence, g.confidence) };
+  }
+
   function upsertDrums(data) {
     var t = project.tracks.drums || { id: 'drums', instrument: 'drums', kind: 'drum', name: 'Drums' };
-    t.events = data.events || []; t.tempo = data.tempo || 120; t.duration = data.duration || 0;
+    t.events = data.events || []; t.duration = data.duration || 0;
+    // Fresh ingest (transcription / MIDI import) carries no grid offset, so
+    // auto-detect tempo + bar-grid phase to lay the hits into correct bars with
+    // no manual tuning. A project RESTORE keeps its saved values — it reactivates
+    // through activateTrack(), never here.
+    if (data.gridOffset == null) {
+      var d = autoDetectDrumGrid(t.events, data.tempo, !!data.tempoTrusted);
+      t.tempo = d.tempo; t.gridOffset = d.gridOffset;
+    } else {
+      t.tempo = data.tempo || 120; t.gridOffset = data.gridOffset || 0;
+    }
     project.tracks.drums = t;
     activateTrack('drums');
     scheduleSave();
@@ -361,7 +397,8 @@
       var tps = (m.tempo / 60) * (m.ppq || 480);
       var events = m.notes.map(function (n) { return { time_sec: n.start / tps, type: DrumTabCore.GM_TO_TYPE[n.pitch], velocity: n.velocity || 100 }; }).filter(function (e) { return e.type; });
       var dur = m.notes.reduce(function (a, n) { return Math.max(a, n.end); }, 0) / tps;
-      upsertDrums({ events: events, tempo: m.tempo, duration: dur });
+      // a MIDI carries a reliable tempo — keep it, auto-detect only the bar phase.
+      upsertDrums({ events: events, tempo: m.tempo, duration: dur, tempoTrusted: true });
       flash(events.length + ' drum hits imported.');
     } else {
       var inst = opts.instrument || (instKind(curTarget().id) === 'melodic' ? curTarget().id : 'bass');
@@ -675,12 +712,20 @@
   }
   ['songAudio', 'stemAudio'].forEach(function (id) { var el = $(id); if (el) ['loadeddata', 'canplay', 'emptied'].forEach(function (ev) { el.addEventListener(ev, refreshSrcButtons); }); });
 
+  // Apply a tempo to the active drum track (the grid + sheet + metronome all key
+  // off it). Tempo may be fractional from auto-detect; the BPM box shows it rounded.
+  function applyDrumTempo(v) {
+    v = +v || 120;
+    var t = project.tracks[project.activeTrackId];
+    if (t && t.kind === 'drum') t.tempo = v;
+    if (drumData) drumData.tempo = v;
+    Transport.setDrumTempo(v); drumRoll.render(); renderDrumSheet();
+    $('bpmInput').value = Math.round(v);
+  }
   $('bpmInput').addEventListener('change', function () {
     var v = +this.value || 120, t = project.tracks[project.activeTrackId];
-    if (t && t.kind === 'drum') {   // drums own their own tempo (the grid + sheet + metronome all key off it)
-      t.tempo = v; if (drumData) drumData.tempo = v;
-      Transport.setDrumTempo(v); drumRoll.render(); renderDrumSheet(); scheduleSave();
-    } else { roll.setTempo(v); }
+    if (t && t.kind === 'drum') { applyDrumTempo(v); scheduleSave(); }
+    else { roll.setTempo(v); }
   });
   function setTS() { roll.setTimeSig(+$('tsNum').value || 4, +$('tsDen').value || 4); }
   $('tsNum').addEventListener('change', setTS); $('tsDen').addEventListener('change', setTS);
@@ -733,6 +778,29 @@
 
   /* ====================== bass-tab toolbar ====================== */
   function btOpts(p) { bassTab.setOptions(p); scheduleSave(); }
+  // Detect the bar offset (ticks) that lines bar 1 up with the music and apply it
+  // to a fretted-tab view. Meaningful when the notes carry a real tempo (e.g. an
+  // imported MIDI); a raw basic-pitch transcription is laid out at a flat 120 BPM.
+  function autoAlignMelodicBars(view, inputId) {
+    var p = roll.getProject();
+    if (!p.notes || p.notes.length < 4) { flash('Not enough notes to align bars.'); return; }
+    // read the meter from the project (what the tab actually renders against), not
+    // the shared DOM boxes — they can lag behind on a track switch.
+    var ppq = p.ppq || 480, ts = p.timeSig || { num: 4, den: 4 };
+    var tsNum = ts.num || 4, den = ts.den || 4, barTicks = ppq * 4 * tsNum / den;
+    var starts = p.notes.map(function (n) { return { t: n.start, w: (n.velocity || 100) / 100 }; });
+    var r = TempoCore.detectBarOffsetTicks(starts, { ppq: ppq, tsNum: tsNum, den: den });
+    var off = r.offsetTicks;
+    // A leftward (negative) shift moves notes earlier; transformNotes drops/clamps
+    // any pushed before tick 0, silently erasing a pickup. If that would happen,
+    // use the equivalent rightward shift (a leading pickup bar) so every note survives.
+    var minStart = p.notes.reduce(function (m, n) { return Math.min(m, n.start); }, Infinity);
+    if (off < 0 && minStart + off < 0) off += barTicks;
+    view.setOptions({ offsetTicks: off });
+    if ($(inputId)) $(inputId).value = off;
+    scheduleSave();
+    flash('Auto bars: offset ' + off + ' ticks.');
+  }
   $('btMono').addEventListener('change', function () { btOpts({ monophonic: this.checked }); });
   $('btAvoidOpen').addEventListener('change', function () { btOpts({ avoidOpen: this.checked }); });
   $('btFingers').addEventListener('change', function () { btOpts({ showFingers: this.checked }); });
@@ -740,6 +808,7 @@
   $('btGrid').addEventListener('change', function () { btOpts({ gridDiv: this.value }); });
   $('btBars').addEventListener('change', function () { btOpts({ barsPerLine: +this.value || 4 }); });
   $('btOffset').addEventListener('change', function () { btOpts({ offsetTicks: Math.round(+this.value || 0) }); });
+  $('btAuto').onclick = function () { autoAlignMelodicBars(bassTab, 'btOffset'); };
   $('btOctUp').onclick = function () { btOpts({ octaveShift: (bassTab.getOptions().octaveShift || 0) + 1 }); };
   $('btOctDown').onclick = function () { btOpts({ octaveShift: (bassTab.getOptions().octaveShift || 0) - 1 }); };
   $('btCopy').onclick = function () { var a = bassTab.getAscii && bassTab.getAscii(); if (!a) { flash('No tab yet.'); return; } navigator.clipboard && navigator.clipboard.writeText(a); flash('ASCII tab copied.'); };
@@ -764,6 +833,7 @@
   $('gtGrid').addEventListener('change', function () { gtOpts({ gridDiv: this.value }); });
   $('gtBars').addEventListener('change', function () { gtOpts({ barsPerLine: +this.value || 4 }); });
   $('gtOffset').addEventListener('change', function () { gtOpts({ offsetTicks: Math.round(+this.value || 0) }); });
+  $('gtAuto').onclick = function () { autoAlignMelodicBars(guitarTab, 'gtOffset'); };
   $('gtOctUp').onclick = function () { gtOpts({ octaveShift: (guitarTab.getOptions().octaveShift || 0) + 1 }); };
   $('gtOctDown').onclick = function () { gtOpts({ octaveShift: (guitarTab.getOptions().octaveShift || 0) - 1 }); };
   $('gtCopy').onclick = function () { var a = guitarTab.getAscii && guitarTab.getAscii(); if (!a) { flash('No tab yet.'); return; } navigator.clipboard && navigator.clipboard.writeText(a); flash('ASCII tab copied.'); };
@@ -819,6 +889,15 @@
   $('dGridShift').addEventListener('change', function () { applyDrumGridOffset(this.value); });
   $('dShiftL').onclick = function () { applyDrumGridOffset(drumRoll.getGridOffset() - 0.01); };
   $('dShiftR').onclick = function () { applyDrumGridOffset(drumRoll.getGridOffset() + 0.01); };
+  // Auto-detect tempo + bar-grid offset from the current hits and apply both.
+  $('dAuto').onclick = function () {
+    var events = drumRoll.getEvents();
+    if (!events || !events.length) { flash('No drum hits to analyse yet.'); return; }
+    var d = autoDetectDrumGrid(events, (drumData && drumData.tempo) || 120);
+    applyDrumTempo(d.tempo);
+    applyDrumGridOffset(d.gridOffset);   // re-renders the sheet, updates the box, saves
+    flash('Auto: ' + Math.round(d.tempo) + ' BPM · grid offset ' + Math.round(d.gridOffset * 1000) + ' ms.');
+  };
 
   /* ---- traditional drum sheet (auto-aligned staff below the grid) ---- */
   // On by default: the staff reads straight off the grid (it quantizes its own

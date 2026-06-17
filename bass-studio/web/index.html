@@ -169,6 +169,7 @@
     </label>
     <label class="inline">bars/line <input type="number" id="btBars" min="1" max="8" value="4"></label>
     <label class="inline" title="Shift the whole tab in time (ticks) to align bar 1 / a pickup">offset <input type="number" id="btOffset" step="10" value="0"></label>
+    <button class="btn sm" id="btAuto" title="Auto-detect the bar offset so bar 1 lines up with the music">✨ Auto bars</button>
   </div>
   <div class="grp">
     <button class="btn sm" id="btOctDown" title="Octave down">8va▼</button>
@@ -199,6 +200,7 @@
     </label>
     <label class="inline">bars/line <input type="number" id="gtBars" min="1" max="8" value="4"></label>
     <label class="inline" title="Shift the whole tab in time (ticks) to align bar 1 / a pickup">offset <input type="number" id="gtOffset" step="10" value="0"></label>
+    <button class="btn sm" id="gtAuto" title="Auto-detect the bar offset so bar 1 lines up with the music">✨ Auto bars</button>
   </div>
   <div class="grp">
     <button class="btn sm" id="gtOctDown" title="Octave down">8va▼</button>
@@ -253,6 +255,7 @@
       <input type="number" id="dGridShift" step="0.01" value="0"><span class="dim">s</span></label>
     <button class="icon sm" id="dShiftL" title="Nudge grid earlier (−10 ms)">◄</button>
     <button class="icon sm" id="dShiftR" title="Nudge grid later (+10 ms)">►</button>
+    <button class="btn sm" id="dAuto" title="Auto-detect tempo + bar-grid offset from the hits">✨ Auto</button>
     <label class="inline chk" title="Show a traditional drum staff below the grid (follows playback)"><input type="checkbox" id="dSheetChk" checked> 📄 sheet</label>
   </div>
   <div class="grp grow"></div>
@@ -463,6 +466,7 @@
 <script src="chord-core.js"></script>
 <script src="drum-tab-core.js"></script>
 <script src="quantize-core.js"></script>
+<script src="tempo-core.js"></script>
 <script src="player.js"></script>
 <script src="drum-synth.js"></script>
 <script src="metronome.js"></script>
