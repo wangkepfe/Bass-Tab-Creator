@@ -100,6 +100,50 @@ var ChordCore = (function () {
     return opts.keepNoChord ? segs : segs.filter(function (s) { return s.label !== 'N'; });
   }
 
+  // Split a (polyphonic) guitar transcription into two parts: a monophonic LEAD
+  // line (the top voice / skyline melody) and the RHYTHM remainder (the chordal
+  // notes below it). Used to turn one guitar stem — which often carries a rhythm
+  // part AND a lead line at once — into two guitar tracks.
+  function splitLeadRhythm(notes, ppq, opts) {
+    opts = opts || {};
+    ppq = ppq || 480;
+    var eps = opts.eps != null ? opts.eps : Math.max(1, Math.round(ppq / 8));
+    function cp(n) { return { start: n.start, end: n.end, pitch: n.pitch, velocity: n.velocity, channel: n.channel, track: n.track }; }
+    var src = notes.slice().filter(function (n) { return n.end > n.start; })
+      .sort(function (a, b) { return a.start - b.start || b.pitch - a.pitch; });
+    var lead = [], rhythm = [], i = 0;
+    while (i < src.length) {
+      var gStart = src[i].start, j = i, top = i;
+      while (j < src.length && src[j].start <= gStart + eps) { if (src[j].pitch > src[top].pitch) top = j; j++; }
+      for (var k = i; k < j; k++) (k === top ? lead : rhythm).push(cp(src[k]));
+      i = j;
+    }
+    // trim the lead to a strictly monophonic top line
+    lead.sort(function (a, b) { return a.start - b.start; });
+    for (var m = 0; m < lead.length - 1; m++) if (lead[m].end > lead[m + 1].start) lead[m].end = lead[m + 1].start;
+    return { lead: lead.filter(function (n) { return n.end > n.start; }), rhythm: rhythm };
+  }
+
+  // How "two-part" a guitar transcription is: fraction of sounding time where a
+  // low (chordal) register and a high (lead) register are active simultaneously.
+  function concurrency(notes, opts) {
+    opts = opts || {};
+    var loMax = opts.loMax != null ? opts.loMax : 52;   // <= E3 ~ rhythm/chord register
+    var hiMin = opts.hiMin != null ? opts.hiMin : 64;   // >= E4 ~ lead register
+    if (!notes || !notes.length) return 0;
+    var end = notes.reduce(function (m, n) { return Math.max(m, n.end); }, 0);
+    if (!end) return 0;
+    var step = Math.max(1, Math.round(end / 400)), both = 0, tot = 0;
+    for (var t = 0; t < end; t += step) {
+      var lo = false, hi = false, any = false;
+      for (var i = 0; i < notes.length; i++) {
+        var n = notes[i]; if (n.start <= t && n.end > t) { any = true; if (n.pitch <= loMax) lo = true; if (n.pitch >= hiMin) hi = true; }
+      }
+      if (any) { tot++; if (lo && hi) both++; }
+    }
+    return tot ? both / tot : 0;
+  }
+
   // ---- chord-diagram shapes -------------------------------------------------
   // Open-position shapes for the common chords (frets per string low->high; -1 = mute).
   var OPEN = {
@@ -170,6 +214,7 @@ var ChordCore = (function () {
   }
 
   var api = { NAMES: NAMES, QUAL: QUAL, label: label, detect: detect, matchChroma: matchChroma,
+              splitLeadRhythm: splitLeadRhythm, concurrency: concurrency,
               shapeFor: shapeFor, shapeForLabel: shapeForLabel, OPEN: OPEN };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.ChordCore = api;

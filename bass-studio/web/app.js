@@ -125,7 +125,7 @@
       basstab: { setPlayheadTick: function (t) { bassTab.setPlayheadTick(t); } },
       guitartab: { setPlayheadTick: function (t) { guitarTab.setPlayheadTick(t); } },
       guitarchords: { setPlayheadTick: function (t) { guitarChords.setPlayheadTick(t); } },
-      drumtab: { setPlayheadSeconds: function (s) { drumRoll.setPlayhead(s); } }
+      drumtab: { setPlayheadSeconds: function (s) { drumRoll.setPlayhead(s); updateDrumSheetPlayhead(s); } }
     },
     onUpdate: onTransport
   });
@@ -225,13 +225,52 @@
     updateStats(); renderTracks(); refreshSrcButtons();
   }
 
-  function upsertMelodic(instrument, m) {
+  // Mint a unique track id for an instrument (bass -> bass, then bass-2, bass-3 …),
+  // so multiple tracks of the same instrument (e.g. two guitars) can coexist.
+  function uniqueTrackId(base) {
+    if (!project.tracks[base]) return base;
+    var i = 2; while (project.tracks[base + '-' + i]) i++;
+    return base + '-' + i;
+  }
+  // opts.id pins the track id (default = instrument, the single-track case);
+  // opts.name overrides the label; opts.activate=false adds without switching to it.
+  function upsertMelodic(instrument, m, opts) {
+    opts = opts || {};
     var T = TARGETS[instrument] || TARGETS.bass;
-    var t = project.tracks[instrument] || { id: instrument, instrument: instrument, kind: 'melodic', name: T.label, view: {}, overrides: {} };
+    var id = opts.id || instrument;
+    var t = project.tracks[id] || { id: id, instrument: instrument, kind: 'melodic', name: opts.name || T.label, view: {}, overrides: {} };
+    if (opts.name) t.name = opts.name;
     t.notes = m.notes; t.ppq = m.ppq; t.tempo = m.tempo; t.timeSig = m.timeSig;
-    project.tracks[instrument] = t;
-    activateTrack(instrument);
+    project.tracks[id] = t;
+    if (opts.activate !== false) activateTrack(id);
     scheduleSave();
+    return t;
+  }
+
+  // Split a guitar track into a monophonic LEAD track (-> 6-string tab) and a
+  // RHYTHM track (the chordal remainder -> chord charts). The original track keeps
+  // its id and becomes the rhythm part; a new track holds the lead. Both share the
+  // guitar stem. This is how one guitar stem (rhythm + lead at once) becomes two.
+  function splitGuitarTrack(srcId) {
+    var t = project.tracks[srcId];
+    if (!t || t.instrument !== 'guitar' || t.kind !== 'melodic') { flash('Select a guitar track to split.'); return; }
+    if (project.activeTrackId === srcId) serializeActive();   // capture live edits first
+    var parts = ChordCore.splitLeadRhythm(t.notes || [], t.ppq || 480);
+    if (!parts.lead.length || !parts.rhythm.length) { flash('This part doesn’t split into distinct lead + rhythm.'); return; }
+    var leadId = uniqueTrackId('guitar');
+    var lead = upsertMelodic('guitar', { notes: parts.lead, ppq: t.ppq, tempo: t.tempo, timeSig: t.timeSig },
+                             { id: leadId, name: 'Guitar (lead)', activate: false });
+    if (t.stem) lead.stem = t.stem;                            // share the same guitar stem
+    t.name = 'Guitar (rhythm)'; t.notes = parts.rhythm; t.view = {}; t.overrides = {};
+    renderTracks();
+    activateTrack(srcId);                                      // land on the rhythm/chords part
+    flash('Split guitar → Lead (' + parts.lead.length + ') + Rhythm (' + parts.rhythm.length + ' notes).');
+    scheduleSave();
+  }
+  // Detect a guitar part that carries a rhythm AND a lead at once, and hint to split.
+  function maybeSuggestSplit(notes, ppq) {
+    if (ChordCore.concurrency(notes) >= 0.5)
+      flash('This guitar part plays rhythm + lead together — use “Split parts” to get two guitar tracks.');
   }
   function upsertDrums(data) {
     var t = project.tracks.drums || { id: 'drums', instrument: 'drums', kind: 'drum', name: 'Drums' };
@@ -288,14 +327,15 @@
     if (!t) { t = { id: instrument, instrument: instrument, kind: instKind(instrument), name: instLabel(instrument), view: {}, overrides: {} }; project.tracks[instrument] = t; }
     if (t.stem) revoke(t.stem.url);
     t.stem = { name: name, blob: blob, url: URL.createObjectURL(blob), file: null };
-    if (project.activeTrackId === instrument) setStemAudio(t.stem);
+    if (project.activeTrackId === t.id) setStemAudio(t.stem);
     renderTracks(); refreshSrcButtons();
-    if (project.id) uploadStem(instrument).then(scheduleSaveNow);
+    if (project.id) uploadStem(t.id).then(scheduleSaveNow);
   }
   function onMelodicResult(bytes, instrument) {
     var m = MidiIO.read(bytes);
     upsertMelodic(instrument, { notes: m.notes, ppq: m.ppq, tempo: m.tempo, timeSig: m.timeSig });
     flash(m.notes.length + ' notes → ' + instLabel(instrument) + ' track.');
+    if (instrument === 'guitar') maybeSuggestSplit(m.notes, m.ppq);
   }
   function onDrumResult(data) { upsertDrums(data); flash((data.events || []).length + ' drum hits → Drums track.'); }
 
@@ -313,8 +353,8 @@
       flash(events.length + ' drum hits imported.');
     } else {
       var inst = opts.instrument || (instKind(curTarget().id) === 'melodic' ? curTarget().id : 'bass');
-      upsertMelodic(inst, { notes: m.notes, ppq: m.ppq, tempo: m.tempo, timeSig: m.timeSig });
-      flash(m.notes.length + ' notes imported → ' + instLabel(inst) + '.');
+      upsertMelodic(inst, { notes: m.notes, ppq: m.ppq, tempo: m.tempo, timeSig: m.timeSig }, { id: opts.id, name: opts.name });
+      flash(m.notes.length + ' notes imported → ' + (opts.name || instLabel(inst)) + '.');
     }
   }
   function openMidiFile(file) {
@@ -387,11 +427,14 @@
       .catch(function () { flash('Song upload failed — audio not saved.'); })
       .then(function () { pendingUploads--; });
   }
-  function uploadStem(instrument) {
-    var t = project.tracks[instrument];
-    if (!project.id || !t || !t.stem || !t.stem.blob) return Promise.resolve();
+  function uploadStem(trackId) {
+    var t = project.tracks[trackId];
+    if (!project.id || !t || !t.stem || !t.stem.blob || t.stem.file) return Promise.resolve();
+    // Key the backend stem file by INSTRUMENT (not track id) so split tracks that
+    // share one guitar stem map to the same stems/guitar.wav instead of duplicating.
+    var inst = t.instrument || 'stem';
     pendingUploads++;
-    var fd = new FormData(); fd.append('file', t.stem.blob, t.stem.name || (instrument + '.wav')); fd.append('role', 'stem'); fd.append('instrument', instrument);
+    var fd = new FormData(); fd.append('file', t.stem.blob, t.stem.name || (inst + '.wav')); fd.append('role', 'stem'); fd.append('instrument', inst);
     return fetch('/api/projects/' + project.id + '/audio', { method: 'POST', body: fd })
       .then(function (r) { if (!r.ok) throw new Error('upload failed'); return r.json(); })
       .then(function (j) { t.stem.file = j.file; })
@@ -515,11 +558,17 @@
     Promise.all(tracks.map(function (t) {
       return fetch('assets/' + encodeURIComponent(t.file), { cache: 'force-cache' })
         .then(function (r) { if (!r.ok || isHtml(r)) throw new Error(t.file + ' not deployed (HTTP ' + r.status + ')'); return r.arrayBuffer(); })
-        .then(function (buf) { return { bytes: new Uint8Array(buf), instrument: t.instrument }; });
+        .then(function (buf) { return { bytes: new Uint8Array(buf), instrument: t.instrument, name: t.name }; });
     })).then(function (loaded) {
       if (!newProject(true)) return;          // user cancelled the discard prompt
       project.name = ex.name; $('projName').value = ex.name;
-      loaded.forEach(function (l) { importMidiBytes(l.bytes, { instrument: l.instrument }); });
+      // assign a unique id per repeated instrument so e.g. two guitar tracks coexist
+      var seen = {};
+      loaded.forEach(function (l) {
+        var n = seen[l.instrument] || 0; seen[l.instrument] = n + 1;
+        var id = n === 0 ? l.instrument : l.instrument + '-' + (n + 1);
+        importMidiBytes(l.bytes, { instrument: l.instrument, id: id, name: l.name });
+      });
       var first = Object.keys(project.tracks)[0];   // land on the first track (bass)
       if (first) activateTrack(first);
       if (ex.youtube) setSongYouTube(ex.youtube);   // wire the song's YouTube as the "Song" source
@@ -721,11 +770,14 @@
     if (instrument === 'guitar') syncGuitarToolbar(v);
     else if (instrument === 'bass') syncBassToolbar(v);
   }
+  // "Split parts" (both guitar toolbars): split the active guitar track into lead + rhythm.
+  if ($('gtSplit')) $('gtSplit').onclick = function () { splitGuitarTrack(project.activeTrackId); };
 
   /* ====================== guitar-chords toolbar (Tab Type 1) ====================== */
   $('gcBars').addEventListener('change', function () { guitarChords.setOptions({ barsPerLine: +this.value || 4 }); });
   $('gcOffset').addEventListener('change', function () { guitarChords.setOptions({ offsetTicks: Math.round(+this.value || 0) }); });
   $('gcCopy').onclick = function () { var a = guitarChords.getAscii && guitarChords.getAscii(); if (!a) { flash('No chords detected yet.'); return; } navigator.clipboard && navigator.clipboard.writeText(a); flash('Chord progression copied.'); };
+  if ($('gcSplit')) $('gcSplit').onclick = function () { splitGuitarTrack(project.activeTrackId); };
   function updateChordInfo(st) { var e = $('gcInfo'); if (!e) return; e.textContent = st ? (st.count + ' changes · ' + st.unique + ' chords') : '—'; }
 
   /* ====================== drum-tab toolbar ====================== */
@@ -749,8 +801,10 @@
   $('dShiftL').onclick = function () { applyDrumGridOffset(drumRoll.getGridOffset() - 0.01); };
   $('dShiftR').onclick = function () { applyDrumGridOffset(drumRoll.getGridOffset() + 0.01); };
 
-  /* ---- traditional drum sheet (quantized staff below the grid) ---- */
-  var sheetOn = false;
+  /* ---- traditional drum sheet (auto-aligned staff below the grid) ---- */
+  // On by default: the staff reads straight off the grid (it quantizes its own
+  // display copy) so no manual Quantize pass is needed first.
+  var sheetOn = true;
   function renderDrumSheet() {
     if (!sheetOn) return;
     var host = $('drumSheet'); if (!host) return;
@@ -762,12 +816,23 @@
       tsNum: 4, barsPerLine: 4
     });
   }
-  $('dSheetChk').addEventListener('change', function () {
-    sheetOn = this.checked;
+  // Drive the staff's playhead from the transport so it scrolls with playback
+  // (it follows vertically while playing, and just marks the spot when paused).
+  function updateDrumSheetPlayhead(s) {
+    if (!sheetOn) return;
+    DrumSheet.setPlayhead(s, Transport.isRunning());
+  }
+  function applySheetVisibility() {
     show($('drumSheetWrap'), sheetOn);
     document.body.classList.toggle('sheet-on', sheetOn);
+  }
+  $('dSheetChk').addEventListener('change', function () {
+    sheetOn = this.checked;
+    applySheetVisibility();
     renderDrumSheet();
   });
+  $('dSheetChk').checked = sheetOn;   // reflect the default-on state in the toolbar
+  applySheetVisibility();
   $('dZoomIn').onclick = function () { drumRoll.zoomIn(); }; $('dZoomOut').onclick = function () { drumRoll.zoomOut(); }; $('dZoomFit').onclick = function () { drumRoll.zoomFit(); };
   $('dDlJson').onclick = function () {
     if (!drumData) return;

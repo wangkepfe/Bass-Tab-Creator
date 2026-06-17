@@ -207,6 +207,7 @@
   </div>
   <div class="grp grow"></div>
   <div class="grp">
+    <button class="btn sm" id="gtSplit" title="Split this guitar part into a lead track + a rhythm track">Split parts</button>
     <button class="btn sm" id="gtCopy" title="Copy ASCII tab">Copy ASCII</button>
     <button class="btn sm" id="gtExport" title="Download .txt tab">Export .txt</button>
     <span class="dim" style="font-size:11px">click a note to change its position · right-click to reset</span>
@@ -223,6 +224,7 @@
   </div>
   <div class="grp grow"></div>
   <div class="grp">
+    <button class="btn sm" id="gcSplit" title="Split this guitar part into a lead track + a rhythm track">Split parts</button>
     <button class="btn sm" id="gcCopy" title="Copy chord progression">Copy chords</button>
     <span class="dim" style="font-size:11px">chords detected from the notes · click a bar to seek</span>
   </div>
@@ -251,7 +253,7 @@
       <input type="number" id="dGridShift" step="0.01" value="0"><span class="dim">s</span></label>
     <button class="icon sm" id="dShiftL" title="Nudge grid earlier (−10 ms)">◄</button>
     <button class="icon sm" id="dShiftR" title="Nudge grid later (+10 ms)">►</button>
-    <label class="inline chk" title="Show a traditional drum staff below the grid"><input type="checkbox" id="dSheetChk"> 📄 sheet</label>
+    <label class="inline chk" title="Show a traditional drum staff below the grid (follows playback)"><input type="checkbox" id="dSheetChk" checked> 📄 sheet</label>
   </div>
   <div class="grp grow"></div>
   <div class="grp">
@@ -290,8 +292,8 @@
         <canvas id="drumCanvas"></canvas>
         <div class="empty-state" id="drumEmpty"><div class="big">🥁</div><div class="msg">Pick target “Drums” and run Song → Drums, or open a GM drum MIDI</div></div>
       </div>
-      <div class="drum-sheet-wrap" id="drumSheetWrap" style="display:none">
-        <div class="ds-head">📄 Traditional notation <span class="dim" id="dsHint">quantized to the grid</span></div>
+      <div class="drum-sheet-wrap" id="drumSheetWrap">
+        <div class="ds-head">📄 Traditional notation <span class="dim" id="dsHint">auto-aligned to the grid · scrolls with playback</span></div>
         <div class="drum-sheet" id="drumSheet"></div>
       </div>
     </div>
@@ -430,7 +432,7 @@
         <div class="guide-row"><span class="g-keys">Wheel · <kbd>Ctrl</kbd>+wheel</span><span class="g-desc">Scroll · zoom. Middle-drag pans.</span></div>
         <div class="guide-row"><span class="g-keys"><kbd>Ctrl</kbd>+<kbd>Z</kbd> · <kbd>Ctrl</kbd>+<kbd>A</kbd> · <kbd>Del</kbd></span><span class="g-desc">Undo/redo · select all · delete. <kbd>Esc</kbd> deselects.</span></div>
         <div class="guide-row"><span class="g-keys">grid shift</span><span class="g-desc">Slide the <b>bar grid</b> earlier/later to line it up with the song — the hits stay locked to the audio, only the grid (and bar numbers, snap, metronome, sheet) moves. Type seconds or nudge with <kbd>◄</kbd>/<kbd>►</kbd>.</span></div>
-        <div class="guide-row"><span class="g-keys">📄 sheet</span><span class="g-desc">Show a traditional drum staff below the grid — noteheads, beams and rests, quantized to the chosen grid. Run <kbd>⊞ Quantize</kbd> first to clean up the rhythm.</span></div>
+        <div class="guide-row"><span class="g-keys">📄 sheet</span><span class="g-desc">A traditional drum staff below the grid — noteheads, beams and rests, auto-aligned to the chosen grid (no Quantize pass needed). On by default; the cursor scrolls the staff in sync with playback.</span></div>
         <div class="guide-row"><span class="g-keys"><kbd>↓ JSON</kbd> <kbd>↓ MIDI</kbd></span><span class="g-desc">Export the grid as events JSON or a GM drum MIDI.</span></div>
       </section>
 
