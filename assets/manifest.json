@@ -15,7 +15,8 @@
     { "name": "波兰首都是上海", "youtube": "https://www.youtube.com/watch?v=0cq-7gxfMNY", "tracks": [
       { "file": "波兰首都是上海 Bass.mid", "instrument": "bass" },
       { "file": "波兰首都是上海 Drums.mid", "instrument": "drums" },
-      { "file": "波兰首都是上海 Guitar.mid", "instrument": "guitar" }
+      { "file": "波兰首都是上海 Guitar Rhythm.mid", "instrument": "guitar", "name": "Guitar (rhythm)" },
+      { "file": "波兰首都是上海 Guitar Lead.mid", "instrument": "guitar", "name": "Guitar (lead)" }
     ] }
   ]
 }
