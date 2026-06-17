@@ -22,6 +22,18 @@
     { name: 'D', open: 38 },
     { name: 'G', open: 43 }
   ];
+  // Standard 6-string guitar tuning, low → high: E2 A2 D3 G3 B3 E4 (MIDI 40..64).
+  // The fingering/render engine is tuning-agnostic (it reads tuning[].open and
+  // tuning.length), so the same convert()/assignFingering()/renderAscii() drive a
+  // 6-string guitar tab simply by passing this tuning.
+  var GUITAR_TUNING = [
+    { name: 'E', open: 40 },
+    { name: 'A', open: 45 },
+    { name: 'D', open: 50 },
+    { name: 'G', open: 55 },
+    { name: 'B', open: 59 },
+    { name: 'e', open: 64 }
+  ];
   var NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 
   function pitchName(p) { return NOTE_NAMES[((p % 12) + 12) % 12] + (Math.floor(p / 12) - 1); }
@@ -680,7 +692,7 @@
 
   // --- exports --------------------------------------------------------------
   var api = {
-    STD_TUNING: STD_TUNING, NOTE_NAMES: NOTE_NAMES, pitchName: pitchName,
+    STD_TUNING: STD_TUNING, GUITAR_TUNING: GUITAR_TUNING, NOTE_NAMES: NOTE_NAMES, pitchName: pitchName,
     parseMidi: parseMidi, detectGrid: detectGrid, pitchStats: pitchStats,
     firstNoteLocation: firstNoteLocation, tickToBarBeat: tickToBarBeat, gridLabel: gridLabel,
     tickToSeconds: tickToSeconds, secondsToTicks: secondsToTicks, bpmAt: bpmAt,

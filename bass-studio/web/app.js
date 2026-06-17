@@ -27,7 +27,7 @@
   var TARGETS = {
     bass:   { id: 'bass',   label: 'Bass',   kind: 'melodic', stem: 'bass',  model: 'htdemucs',    minFreq: '30',  maxFreq: '400',  minNote: '80', onset: '0.5', frame: '0.3',  shifts: '2', center: 40, markers: { 28: 1, 33: 1, 38: 1, 43: 1 }, instrument: 'bass',  defaultView: 'basstab' },
     piano:  { id: 'piano',  label: 'Piano',  kind: 'melodic', stem: 'piano', model: 'htdemucs_6s', minFreq: '',    maxFreq: '',     minNote: '50', onset: '0.4', frame: '0.25', shifts: '2', center: 60, markers: {}, instrument: 'piano', defaultView: 'pianoroll' },
-    guitar: { id: 'guitar', label: 'Guitar', kind: 'melodic', stem: 'guitar', model: 'htdemucs_6s', minFreq: '70', maxFreq: '1400', minNote: '60', onset: '0.4', frame: '0.3',  shifts: '2', center: 52, markers: {}, instrument: 'piano', defaultView: 'pianoroll' },
+    guitar: { id: 'guitar', label: 'Guitar', kind: 'melodic', stem: 'guitar', model: 'htdemucs_6s', minFreq: '70', maxFreq: '1400', minNote: '60', onset: '0.4', frame: '0.3',  shifts: '2', center: 52, markers: { 40: 1, 45: 1, 50: 1, 55: 1, 59: 1, 64: 1 }, instrument: 'guitar', defaultView: 'guitartab' },
     vocals: { id: 'vocals', label: 'Vocals', kind: 'melodic', stem: 'vocals', model: 'htdemucs',    minFreq: '80', maxFreq: '1200', minNote: '80', onset: '0.5', frame: '0.3',  shifts: '2', center: 60, markers: {}, instrument: 'piano', defaultView: 'pianoroll' },
     keys:   { id: 'keys',   label: 'Keys',   kind: 'melodic', stem: 'other',  model: 'htdemucs',    minFreq: '',    maxFreq: '',    minNote: '60', onset: '0.4', frame: '0.3',  shifts: '2', center: 60, markers: {}, instrument: 'piano', defaultView: 'pianoroll' },
     drums:  { id: 'drums',  label: 'Drums',  kind: 'drum',    stem: 'drums', model: 'htdemucs',     shifts: '2', center: 48, markers: {}, instrument: 'bass', defaultView: 'drumtab' }
@@ -46,7 +46,7 @@
 
   /* ---- views ---- */
   var roll = PianoRoll.create($('rollCanvas'), {
-    onChange: function () { updateStats(); Transport.rebuildMelodic(); if (currentView === 'basstab') bassTab.render(); scheduleSave(); },
+    onChange: function () { updateStats(); Transport.rebuildMelodic(); if (TAB_VIEWS[currentView]) TAB_VIEWS[currentView].render(); scheduleSave(); },
     onSeek: function (t) { Transport.seekTick(t); },
     onSelection: function (n) { $('selCount').textContent = n ? '  ·  ' + n + ' selected' : ''; },
     onTool: setToolUI,
@@ -59,6 +59,46 @@
     onStatus: function (ergo) { updateErgo(ergo); },
     onChange: function () { scheduleSave(); }   // fingering override edits
   });
+  // Guitar Tab reuses the same fretted-instrument engine/renderer with a 6-string
+  // standard tuning. Both tab views read the shared piano-roll notes (getProject).
+  var guitarTab = BassTabView.create($('guitarTabHost'), {
+    getProject: function () { return roll.getProject(); },
+    onSeekSeconds: function (s) { Transport.seekSeconds(s); },
+    onStatus: function (ergo) { updateGuitarErgo(ergo); },
+    onChange: function () { scheduleSave(); },
+    tuning: BassTab.GUITAR_TUNING
+  });
+  // Guitar Chords (Tab Type 1): chord progression + diagram charts, detected from
+  // the same shared piano-roll notes via ChordCore.
+  var guitarChords = GuitarChordView.create($('guitarChordHost'), {
+    getProject: function () { return roll.getProject(); },
+    onSeekSeconds: function (s) { Transport.seekSeconds(s); },
+    onStatus: function (st) { updateChordInfo(st); }
+  });
+  // view-name -> view controller that re-renders from the shared notes when active.
+  var TAB_VIEWS = { basstab: bassTab, guitartab: guitarTab, guitarchords: guitarChords };
+  function melodicViewFor(instrument) {
+    return instrument === 'bass' ? 'basstab' : instrument === 'guitar' ? 'guitartab' : 'pianoroll';
+  }
+  function tabViewForInstrument(instrument) { return TAB_VIEWS[melodicViewFor(instrument)] || null; }
+  guitarTab.setOptions({ maxFret: 19 });   // guitar default (vs the view's 24-fret bass default)
+
+  // Playing-style router: chordal/strummed guitar -> chord charts (Type 1); single-note
+  // lead/riff -> 6-string tab (Type 2). Uses the polyphony signal validated in research
+  // (fraction of time >=3 notes sound at once — the dominant comp-vs-solo discriminator).
+  function guitarPolyphony(notes, ppq) {
+    if (!notes || !notes.length) return 0;
+    var end = notes.reduce(function (m, n) { return Math.max(m, n.end); }, 0);
+    var step = Math.max(1, Math.round((ppq || 480) / 4));   // 16th-note grid
+    var hi = 0, tot = 0;
+    for (var t = 0; t < end; t += step) {
+      var c = 0;
+      for (var i = 0; i < notes.length; i++) if (notes[i].start <= t && notes[i].end > t) c++;
+      if (c >= 3) hi++; tot++;
+    }
+    return tot ? hi / tot : 0;
+  }
+  function defaultGuitarView(notes, ppq) { return guitarPolyphony(notes, ppq) >= 0.30 ? 'guitarchords' : 'guitartab'; }
   var drumRoll = DrumRoll.create($('drumCanvas'), {
     onEdit: function (events) {
       if (drumData) { drumData.events = events; drumData.duration = Math.max(drumData.duration || 0, drumEnd(events)); Transport.setDrumDuration(drumData.duration); }
@@ -83,6 +123,8 @@
     views: {
       pianoroll: { setPlayheadTick: function (t) { roll.setPlayhead(t); } },
       basstab: { setPlayheadTick: function (t) { bassTab.setPlayheadTick(t); } },
+      guitartab: { setPlayheadTick: function (t) { guitarTab.setPlayheadTick(t); } },
+      guitarchords: { setPlayheadTick: function (t) { guitarChords.setPlayheadTick(t); } },
       drumtab: { setPlayheadSeconds: function (s) { drumRoll.setPlayhead(s); } }
     },
     onUpdate: onTransport
@@ -109,6 +151,8 @@
     var isDrum = instKind(instrument) === 'drum';
     setTabEnabled('pianoroll', !isDrum);
     setTabEnabled('basstab', instrument === 'bass');
+    setTabEnabled('guitartab', instrument === 'guitar');
+    setTabEnabled('guitarchords', instrument === 'guitar');
     setTabEnabled('drumtab', isDrum);
   }
   function setView(name) {
@@ -116,11 +160,11 @@
     if (b && b.classList.contains('disabled')) return;
     currentView = name;
     Array.prototype.forEach.call($('viewTabs').children, function (x) { x.classList.toggle('on', x.dataset.view === name); });
-    show($('panePianoRoll'), name === 'pianoroll'); show($('paneBassTab'), name === 'basstab'); show($('paneDrumTab'), name === 'drumtab');
-    show($('toolsPianoRoll'), name === 'pianoroll'); show($('toolsBassTab'), name === 'basstab'); show($('toolsDrumTab'), name === 'drumtab');
+    show($('panePianoRoll'), name === 'pianoroll'); show($('paneBassTab'), name === 'basstab'); show($('paneGuitarTab'), name === 'guitartab'); show($('paneGuitarChords'), name === 'guitarchords'); show($('paneDrumTab'), name === 'drumtab');
+    show($('toolsPianoRoll'), name === 'pianoroll'); show($('toolsBassTab'), name === 'basstab'); show($('toolsGuitarTab'), name === 'guitartab'); show($('toolsGuitarChords'), name === 'guitarchords'); show($('toolsDrumTab'), name === 'drumtab');
     Transport.setView(name);
     if (name === 'pianoroll') roll.redraw();
-    else if (name === 'basstab') bassTab.render();
+    else if (TAB_VIEWS[name]) TAB_VIEWS[name].render();
     else if (name === 'drumtab') drumRoll.render();
     refreshSrcButtons();
   }
@@ -136,7 +180,8 @@
     else {
       var pj = roll.getProject();
       t.notes = pj.notes; t.ppq = pj.ppq; t.tempo = pj.tempo; t.timeSig = pj.timeSig;
-      t.view = bassTab.getOptions(); t.overrides = bassTab.getOverrides();
+      var tv = tabViewForInstrument(t.instrument);
+      if (tv) { t.view = tv.getOptions(); t.overrides = tv.getOverrides(); }
     }
   }
 
@@ -163,12 +208,18 @@
       roll.load({ ppq: t.ppq || 480, tempo: t.tempo || 120, timeSig: t.timeSig || { num: 4, den: 4 }, notes: t.notes || [] });
       $('bpmInput').value = Math.round(t.tempo || 120);
       $('tsNum').value = (t.timeSig && t.timeSig.num) || 4; $('tsDen').value = (t.timeSig && t.timeSig.den) || 4;
-      bassTab.setOverrides(t.overrides || {});
-      bassTab.setOptions(t.view || {});            // re-renders the tab
-      syncBassToolbar(bassTab.getOptions());
+      var tv = tabViewForInstrument(t.instrument);
+      if (tv) {
+        tv.setOverrides(t.overrides || {});
+        tv.setOptions(t.view || {});               // re-renders the tab
+        syncTabToolbar(t.instrument, tv.getOptions());
+      }
       Transport.rebuildMelodic();
       setStemAudio(t.stem);
-      setView(t.instrument === 'bass' ? 'basstab' : 'pianoroll');
+      // Auto-route guitar to chords vs 6-string tab by detected style (user can still switch tabs).
+      var mview = melodicViewFor(t.instrument);
+      if (t.instrument === 'guitar' && !opts.keepView) mview = defaultGuitarView(t.notes || [], t.ppq || 480);
+      setView(mview);
     }
     loading = wasLoading;
     updateStats(); renderTracks(); refreshSrcButtons();
@@ -285,7 +336,7 @@
     var wasLoading = loading; loading = true;
     roll.load({ ppq: 480, tempo: 120, timeSig: { num: 4, den: 4 }, notes: [] });
     drumData = null; if (drumRoll.clearData) drumRoll.clearData(); show($('drumEmpty'), true);
-    bassTab.setOverrides({}); bassTab.render();
+    bassTab.setOverrides({}); bassTab.render(); guitarTab.setOverrides({}); guitarTab.render(); guitarChords.clear();
     setStemAudio(null); updateStats(); updateViewAvailability('bass'); setView('pianoroll');
     loading = wasLoading;
   }
@@ -607,7 +658,7 @@
   $('btnMono').onclick = function () {
     var p = roll.getProject(); var before = p.notes.length;
     p.notes = BassTab.monophonicReduce(p.notes, p.ppq, { pick: 'low' });
-    roll.load(p); if (currentView === 'basstab') bassTab.render();
+    roll.load(p); if (TAB_VIEWS[currentView]) TAB_VIEWS[currentView].render();
     flash('Reduced ' + before + ' → ' + p.notes.length + ' notes (monophonic).');
   };
   $('btnOctUp').onclick = function () { roll.transpose(12); };
@@ -641,6 +692,41 @@
     if ($('btBars')) $('btBars').value = v.barsPerLine || 4;
     if ($('btOffset')) $('btOffset').value = v.offsetTicks || 0;
   }
+
+  /* ====================== guitar-tab toolbar (mirrors bass; drives guitarTab) ====================== */
+  function gtOpts(p) { guitarTab.setOptions(p); scheduleSave(); }
+  $('gtMono').addEventListener('change', function () { gtOpts({ monophonic: this.checked }); });
+  $('gtAvoidOpen').addEventListener('change', function () { gtOpts({ avoidOpen: this.checked }); });
+  $('gtFingers').addEventListener('change', function () { gtOpts({ showFingers: this.checked }); });
+  $('gtMaxFret').addEventListener('change', function () { gtOpts({ maxFret: +this.value || 19 }); });
+  $('gtGrid').addEventListener('change', function () { gtOpts({ gridDiv: this.value }); });
+  $('gtBars').addEventListener('change', function () { gtOpts({ barsPerLine: +this.value || 4 }); });
+  $('gtOffset').addEventListener('change', function () { gtOpts({ offsetTicks: Math.round(+this.value || 0) }); });
+  $('gtOctUp').onclick = function () { gtOpts({ octaveShift: (guitarTab.getOptions().octaveShift || 0) + 1 }); };
+  $('gtOctDown').onclick = function () { gtOpts({ octaveShift: (guitarTab.getOptions().octaveShift || 0) - 1 }); };
+  $('gtCopy').onclick = function () { var a = guitarTab.getAscii && guitarTab.getAscii(); if (!a) { flash('No tab yet.'); return; } navigator.clipboard && navigator.clipboard.writeText(a); flash('ASCII tab copied.'); };
+  $('gtExport').onclick = function () { var a = guitarTab.getAscii && guitarTab.getAscii(); if (!a) { flash('No tab yet.'); return; } download(new TextEncoder().encode(a), (project.name || 'guitar') + '-tab.txt', 'text/plain'); };
+  function updateGuitarErgo(ergo) { var e = $('gtErgo'); if (!e) return; e.textContent = ergo ? (ergo.rating + ' · ' + ergo.noteCount + ' notes · frets ' + ergo.minFret + '–' + ergo.maxFret) : '—'; }
+  function syncGuitarToolbar(v) {
+    if ($('gtMono')) $('gtMono').checked = v.monophonic !== false;
+    if ($('gtAvoidOpen')) $('gtAvoidOpen').checked = !!v.avoidOpen;
+    if ($('gtFingers')) $('gtFingers').checked = v.showFingers !== false;
+    if ($('gtMaxFret')) $('gtMaxFret').value = v.maxFret || 19;
+    if ($('gtGrid')) $('gtGrid').value = v.gridDiv || '16';
+    if ($('gtBars')) $('gtBars').value = v.barsPerLine || 4;
+    if ($('gtOffset')) $('gtOffset').value = v.offsetTicks || 0;
+  }
+  // Sync whichever fretted-instrument toolbar matches the active melodic instrument.
+  function syncTabToolbar(instrument, v) {
+    if (instrument === 'guitar') syncGuitarToolbar(v);
+    else if (instrument === 'bass') syncBassToolbar(v);
+  }
+
+  /* ====================== guitar-chords toolbar (Tab Type 1) ====================== */
+  $('gcBars').addEventListener('change', function () { guitarChords.setOptions({ barsPerLine: +this.value || 4 }); });
+  $('gcOffset').addEventListener('change', function () { guitarChords.setOptions({ offsetTicks: Math.round(+this.value || 0) }); });
+  $('gcCopy').onclick = function () { var a = guitarChords.getAscii && guitarChords.getAscii(); if (!a) { flash('No chords detected yet.'); return; } navigator.clipboard && navigator.clipboard.writeText(a); flash('Chord progression copied.'); };
+  function updateChordInfo(st) { var e = $('gcInfo'); if (!e) return; e.textContent = st ? (st.count + ' changes · ' + st.unique + ' chords') : '—'; }
 
   /* ====================== drum-tab toolbar ====================== */
   function dToolUI(t) { $('dToolSelect').classList.toggle('on', t === 'select'); $('dToolDraw').classList.toggle('on', t === 'draw'); }
@@ -779,7 +865,7 @@
       o.gridTicks = QuantizeCore.gridTicks(gridV, roll.stats().ppq);
       o.lengths = $('qzLengths').checked;
       var n2 = roll.quantizeAdvanced(o);
-      if (currentView === 'basstab') bassTab.render();
+      if (TAB_VIEWS[currentView]) TAB_VIEWS[currentView].render();
       flash('Quantized ' + n2 + ' notes.');
     }
     closeQuantize(); scheduleSave();
@@ -840,7 +926,7 @@
 
   // debug/automation handle
   window.Studio = {
-    roll: roll, bassTab: bassTab, drumRoll: drumRoll, transport: Transport,
+    roll: roll, bassTab: bassTab, guitarTab: guitarTab, drumRoll: drumRoll, transport: Transport,
     getProject: function () { return project; }, activateTrack: activateTrack,
     newProject: newProject, saveProject: saveProject, openProject: openProject,
     onSong: onSong, onStem: onStem, onMelodicResult: onMelodicResult, onDrumResult: onDrumResult,

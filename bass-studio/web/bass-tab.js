@@ -91,6 +91,9 @@ var BassTabView = (function () {
     var onSeekSeconds = opts.onSeekSeconds || function () {};
     var onStatus     = opts.onStatus     || null;
     var onChange     = opts.onChange     || null;
+    // Fretboard tuning — defaults to 4-string bass, but a 6-string guitar tuning
+    // (BassTab.GUITAR_TUNING) can be passed; the renderer draws tuning.length string lines.
+    var tuning       = opts.tuning       || BassTab.STD_TUNING;
 
     // internal options (exact keys + defaults required by the host)
     var options = {
@@ -147,7 +150,7 @@ var BassTabView = (function () {
       };
 
       var settings = {
-        tuning: BassTab.STD_TUNING,
+        tuning: tuning,
         maxFret: +options.maxFret || 24,
         timeSig: ts,
         octaveShift: +options.octaveShift || 0,    // OCTAVES (core multiplies by 12)

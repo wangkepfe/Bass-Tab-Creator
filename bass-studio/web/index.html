@@ -87,6 +87,8 @@
   <div class="viewtabs" id="viewTabs">
     <button class="vtab on" data-view="pianoroll" title="Edit the MIDI in a piano-roll">🎹 Piano Roll</button>
     <button class="vtab" data-view="basstab" title="Render the MIDI as a bass tab">🎸 Bass Tab</button>
+    <button class="vtab" data-view="guitartab" title="Render the MIDI as a 6-string guitar tab">🎸 Guitar Tab</button>
+    <button class="vtab" data-view="guitarchords" title="Chord progression + chord-diagram charts">🎶 Guitar Chords</button>
     <button class="vtab" data-view="drumtab" title="Drum hits as a multi-lane grid">🥁 Drum Tab</button>
   </div>
   <div class="grp">
@@ -181,6 +183,51 @@
   </div>
 </div>
 
+<div class="toolbar viewtools" id="toolsGuitarTab" style="display:none">
+  <div class="grp">
+    <label class="inline chk"><input type="checkbox" id="gtMono" checked> monophonic</label>
+    <label class="inline chk"><input type="checkbox" id="gtAvoidOpen"> avoid open</label>
+    <label class="inline chk"><input type="checkbox" id="gtFingers" checked> fingers</label>
+  </div>
+  <div class="grp">
+    <label class="inline">max fret <input type="number" id="gtMaxFret" min="5" max="24" value="19"></label>
+    <label class="inline">grid
+      <select id="gtGrid">
+        <option value="4">1/4</option><option value="8">1/8</option><option value="8t">1/8T</option>
+        <option value="16" selected>1/16</option><option value="16t">1/16T</option><option value="32">1/32</option>
+      </select>
+    </label>
+    <label class="inline">bars/line <input type="number" id="gtBars" min="1" max="8" value="4"></label>
+    <label class="inline" title="Shift the whole tab in time (ticks) to align bar 1 / a pickup">offset <input type="number" id="gtOffset" step="10" value="0"></label>
+  </div>
+  <div class="grp">
+    <button class="btn sm" id="gtOctDown" title="Octave down">8va▼</button>
+    <button class="btn sm" id="gtOctUp" title="Octave up">8va▲</button>
+    <span class="dim" id="gtErgo">—</span>
+  </div>
+  <div class="grp grow"></div>
+  <div class="grp">
+    <button class="btn sm" id="gtCopy" title="Copy ASCII tab">Copy ASCII</button>
+    <button class="btn sm" id="gtExport" title="Download .txt tab">Export .txt</button>
+    <span class="dim" style="font-size:11px">click a note to change its position · right-click to reset</span>
+  </div>
+</div>
+
+<div class="toolbar viewtools" id="toolsGuitarChords" style="display:none">
+  <div class="grp">
+    <label class="inline">bars/line <input type="number" id="gcBars" min="1" max="8" value="4"></label>
+    <label class="inline" title="Shift the whole progression in time (ticks) to align bar 1 / a pickup">offset <input type="number" id="gcOffset" step="10" value="0"></label>
+  </div>
+  <div class="grp">
+    <span class="dim" id="gcInfo">—</span>
+  </div>
+  <div class="grp grow"></div>
+  <div class="grp">
+    <button class="btn sm" id="gcCopy" title="Copy chord progression">Copy chords</button>
+    <span class="dim" style="font-size:11px">chords detected from the notes · click a bar to seek</span>
+  </div>
+</div>
+
 <div class="toolbar viewtools" id="toolsDrumTab" style="display:none">
   <div class="grp">
     <span class="seg" id="dToolSeg">
@@ -227,6 +274,14 @@
   <!-- Bass tab -->
   <div class="viewpane" id="paneBassTab" style="display:none">
     <div class="tabhost" id="tabHost"></div>
+  </div>
+  <!-- Guitar tab (6-string) -->
+  <div class="viewpane" id="paneGuitarTab" style="display:none">
+    <div class="tabhost" id="guitarTabHost"></div>
+  </div>
+  <!-- Guitar chords (progression + diagrams) -->
+  <div class="viewpane" id="paneGuitarChords" style="display:none">
+    <div class="tabhost" id="guitarChordHost"></div>
   </div>
   <!-- Drum tab -->
   <div class="viewpane" id="paneDrumTab" style="display:none">
@@ -403,6 +458,7 @@
 <script src="config.js"></script>
 <script src="midi-io.js"></script>
 <script src="bass-tab-core.js"></script>
+<script src="chord-core.js"></script>
 <script src="drum-tab-core.js"></script>
 <script src="quantize-core.js"></script>
 <script src="player.js"></script>
@@ -410,6 +466,7 @@
 <script src="metronome.js"></script>
 <script src="piano-roll.js"></script>
 <script src="bass-tab.js"></script>
+<script src="guitar-chord.js"></script>
 <script src="drum-roll.js"></script>
 <script src="drum-sheet.js"></script>
 <script src="transport.js"></script>
