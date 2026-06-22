@@ -1,5 +1,5 @@
 {
-  "_comment": "Generation INPUT for the starter projects. build-seeds.js reads this + the .mid files here and writes seed-projects/<id>/project.json. These are not served or shipped; only the generated seed-projects/ folders are.",
+  "_comment": "Bootstrap INPUT for the project library. build-seeds.js reads this + the .mid files here and creates any missing projects/<id>/project.json (it never overwrites edits). These source files are not served or shipped; only the projects/ folder is.",
   "seeds": [
     { "id": "seed-private-eyes", "name": "Private Eyes", "youtube": "https://www.youtube.com/watch?v=WvBUHHjtJw0", "tracks": [
       { "file": "Private Eyes Bass.mid", "instrument": "bass" },

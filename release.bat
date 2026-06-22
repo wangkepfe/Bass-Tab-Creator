@@ -13,7 +13,7 @@ REM Produces:
 REM   release\
 REM     tab-studio\server\   backend (NO .venv, NO __pycache__) + vendored ADTOF weights
 REM     tab-studio\web\      the in-browser editor (served at / in desktop mode)
-REM     seed-projects\       starter projects (seeded into projects\ on first run)
+REM     projects\            the project library (each projects\<id>\project.json)
 REM     models\              PRE-DOWNLOADED Demucs htdemucs weights (TORCH_HOME cache)
 REM     setup.bat            first-run installer (end user runs ONCE)
 REM     run.bat             launcher (end user double-clicks)
@@ -79,9 +79,10 @@ echo Copying web frontend (tab-studio\web)...
 robocopy "%ROOT%\tab-studio\web" "%REL%\tab-studio\web" /E /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 goto :robofail
 
-REM --- 4) copy the starter projects (seeded into projects\ on first run) -----
-echo Copying starter projects...
-robocopy "%ROOT%\seed-projects" "%REL%\seed-projects" /E /NFL /NDL /NJH /NJS /NP >nul
+REM --- 4) copy the project library (project.json only — not the dev's local audio).
+REM    The backend reads/writes these in place; there is no first-run seeding. ------
+echo Copying the project library...
+robocopy "%ROOT%\projects" "%REL%\projects" project.json /S /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 goto :robofail
 
 REM    Pin DESKTOP mode in the shipped config.js. The committed web\config.js

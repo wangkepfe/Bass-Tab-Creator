@@ -542,9 +542,9 @@
     if (!confirmDiscard()) return;
     clearTimeout(saveTimer);
     if (WEB) {
-      // web build: the library is the static seed bundle (read-only source).
+      // web build: the library is the static projects/ bundle (read-only here).
       // Opened projects are editable in memory and saved back via "Save file".
-      fetch('seed/' + encodeURIComponent(id) + '.json', { cache: 'force-cache' })
+      fetch('projects/' + encodeURIComponent(id) + '.json', { cache: 'force-cache' })
         .then(function (r) { if (!r.ok || isHtml(r)) throw new Error('not found'); return r.json(); })
         .then(function (meta) { loadProjectMeta(meta, null); })
         .catch(function (e) { flash('Could not open project: ' + e.message); });
@@ -622,14 +622,14 @@
   function openLibrary() { $('libOverlay').style.display = ''; $('libSearch').value = ''; libLoaded = false; renderLibrary(); fetchProjects(); setTimeout(function () { $('libSearch').focus(); }, 30); }
   function closeLibrary() { $('libOverlay').style.display = 'none'; }
   // The library lists projects. Desktop reads them from the local backend; the web
-  // build reads the bundled starter projects from the static seed bundle (read-only
-  // source, editable once opened, saved back via "Save file").
+  // build reads them from the bundled static projects/ library (read-only here,
+  // editable once opened, saved back via "Save file").
   // isHtml: the SPA fallback (_redirects '/* /index.html 200') serves index.html
   // with HTTP 200 for a MISSING file — so a 200 alone doesn't mean it exists.
   // Reject HTML so a not-deployed bundle fails clearly instead of as JSON garbage.
   function isHtml(r) { return /text\/html/i.test(r.headers.get('content-type') || ''); }
   function fetchProjects() {
-    var url = WEB ? 'seed/index.json' : '/api/projects';
+    var url = WEB ? 'projects/index.json' : '/api/projects';
     fetch(url, { cache: WEB ? 'force-cache' : 'no-store' }).then(function (r) { return (r.ok && !isHtml(r)) ? r.json() : { projects: [] }; })
       .then(function (j) { libProjects = (j && j.projects) || []; libLoaded = true; renderLibrary(); })
       .catch(function () { libProjects = []; libLoaded = true; renderLibrary(); });
@@ -641,7 +641,7 @@
     if (!items.length) {
       var emptyMsg = !libLoaded ? 'Loading…'
         : libProjects.length ? 'No projects match.'
-        : WEB ? 'No starter projects bundled.'
+        : WEB ? 'No projects bundled.'
         : 'No saved projects yet — load a song, extract a track, then Save.';
       show($('libEmpty'), !!emptyMsg); $('libEmpty').textContent = emptyMsg;
       return;
@@ -657,8 +657,8 @@
       open.appendChild(nm); open.appendChild(meta);
       open.onclick = function () { openProject(p.id); };
       row.appendChild(open);
-      // Delete only applies to the desktop backend's saved projects; the web build's
-      // list is the read-only starter bundle (open + edit + Save file instead).
+      // Delete only applies to the desktop backend's library; the web build's list is
+      // read-only (open + edit + Save file instead).
       if (!WEB) {
         var del = document.createElement('button'); del.className = 'lib-del'; del.textContent = '🗑'; del.title = 'Delete project';
         del.onclick = function (e) { e.stopPropagation(); if (confirm('Delete project "' + (p.name || 'Untitled') + '"? This removes its saved audio + tracks.')) deleteProject(p.id); };

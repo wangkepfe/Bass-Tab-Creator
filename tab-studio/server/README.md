@@ -52,8 +52,9 @@ uvicorn app:app --port 8000
 ```
 then open **http://localhost:8000/** — the single unified Studio app. (`/studio` and
 `/drums` redirect here for old bookmarks.) The `web/` folder is served at the root.
-On first run the bundled starter projects (`seed-projects/`) are copied into
-`projects/` so the library opens with content.
+The project library lives in the committed `projects/` folder, which the backend
+reads and writes in place (no first-run copy) — edits persist there and ship with the
+web build.
 
 ## API
 

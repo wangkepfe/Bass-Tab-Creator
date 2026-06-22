@@ -49,8 +49,7 @@ from starlette.concurrency import run_in_threadpool
 HERE = Path(__file__).resolve().parent
 WEB_DIR = (HERE.parent / "web").resolve()
 ROOT_DIR = (HERE.parent.parent).resolve()          # repo root
-SEED_DIR = ROOT_DIR / "seed-projects"               # bundled starter projects (committed)
-PROJECTS_DIR = ROOT_DIR / "projects"                # saved projects (git-ignored) — the app's "database"
+PROJECTS_DIR = ROOT_DIR / "projects"                # the project library (committed) — this app edits it in place
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 WORK_DIR = Path(tempfile.gettempdir()) / "tab-studio-jobs"
 WORK_DIR.mkdir(parents=True, exist_ok=True)
@@ -603,45 +602,10 @@ def _write_meta(d, obj):
     os.replace(str(tmp), str(d / "project.json"))
 
 
-def _seed_projects():
-    """On first run, copy the bundled starter projects (seed-projects/) into the
-    user's projects/ folder so the app opens with real, editable content — there
-    is no separate read-only "example" type anymore.
-
-    Idempotent and deletion-respecting: a projects/.seeded marker records which
-    starters were already applied, so (a) startup never re-copies them, and (b) a
-    starter the user deletes stays deleted. Existing projects are never overwritten."""
-    if not SEED_DIR.is_dir():
-        return
-    marker = PROJECTS_DIR / ".seeded"
-    try:
-        done = set(json.loads(marker.read_text(encoding="utf-8")))
-    except Exception:
-        done = set()
-    changed = False
-    for d in sorted(SEED_DIR.iterdir()):
-        src = d / "project.json"
-        if not d.is_dir() or not src.is_file() or d.name in done:
-            continue
-        dest = PROJECTS_DIR / d.name
-        if not dest.exists():
-            (dest / "stems").mkdir(parents=True, exist_ok=True)
-            (dest / "project.json").write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
-        done.add(d.name)
-        changed = True
-    if changed:
-        try:
-            marker.write_text(json.dumps(sorted(done)), encoding="utf-8")
-        except Exception:
-            pass
-
-
-# Seed the starter projects once, at import time. A failure here must never block
-# the server from starting, so swallow any error.
-try:
-    _seed_projects()
-except Exception:
-    pass
+# projects/ IS the project library: one committed folder of projects/<id>/project.json
+# that this backend reads and writes in place (auto-save persists here) and that the
+# web build ships. There is no separate "seed"/"example" type and no first-run copy —
+# editing a project here is what gets released.
 
 
 @app.get("/api/projects")
@@ -765,9 +729,9 @@ def _legacy_redirect():
 
 
 # -----------------------------------------------------------------------------
-# static mounts (LAST). The unified app (web/) is served at the root. Starter
-# projects are seeded into projects/ on first run (see _seed_projects), not served
-# as static assets.
+# static mounts (LAST). The unified app (web/) is served at the root. The project
+# library lives in projects/ and is exposed via the /api/projects routes above, not
+# served as static assets.
 # -----------------------------------------------------------------------------
 app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="app")
 

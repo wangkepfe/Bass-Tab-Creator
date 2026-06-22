@@ -6,11 +6,11 @@ REM --- 1) rebuild from the repo root (needs Node >= 18 on PATH) --------------
 cd /d "%~dp0"
 where node >nul 2>nul
 if errorlevel 1 (
-    echo WARNING: Node not found on PATH - skipping rebuild ^(seed-projects\ and dist\ left as-is^).
+    echo WARNING: Node not found on PATH - skipping rebuild ^(projects\ and dist\ left as-is^).
 ) else (
-    echo Regenerating starter projects ^(build-seeds.js^)...
+    echo Bootstrapping any missing projects ^(build-seeds.js^)...
     node tab-studio\tools\build-seeds.js
-    if errorlevel 1 echo WARNING: build-seeds.js failed - using existing seed-projects.
+    if errorlevel 1 echo WARNING: build-seeds.js failed - using existing projects.
     echo Building the static web app ^(build.js -^> dist\^)...
     node build.js
     if errorlevel 1 echo WARNING: build.js failed - dist\ may be stale.
