@@ -3,9 +3,9 @@
   "version": "3.0.0",
   "description": "Studio — song → stem → MIDI → editable piano-roll, ergonomic bass tab, and drum tab. Ships as a free web app (offline editor + asset library) and a Windows desktop app with the full local-GPU AI pipeline (Demucs · basic-pitch · ADTOF · yt-dlp).",
   "scripts": {
-    "start": "python -m uvicorn app:app --app-dir bass-studio/server --port 8000",
+    "start": "python -m uvicorn app:app --app-dir tab-studio/server --port 8000",
     "build": "node build.js",
-    "test": "node bass-studio/test-core.js"
+    "test": "node tab-studio/test-core.js"
   },
   "keywords": ["midi", "bass", "tablature", "tab", "drums", "piano-roll", "demucs", "basic-pitch", "stem", "transcription", "youtube"],
   "homepage": "https://github.com/wangkepfe/Bass-Tab-Creator"
