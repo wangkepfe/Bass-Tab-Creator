@@ -6,14 +6,14 @@ REM ===========================================================================
 REM release.bat - BUILD the portable Desktop release into .\release\
 REM
 REM Run this from the REPO ROOT, on the DEVELOPER machine that already has the
-REM working backend venv at  bass-studio\server\.venv  (it is used ONLY to
+REM working backend venv at  tab-studio\server\.venv  (it is used ONLY to
 REM pre-download the Demucs model weights; it is NOT copied into the release).
 REM
 REM Produces:
 REM   release\
-REM     bass-studio\server\   backend (NO .venv, NO __pycache__) + vendored ADTOF weights
-REM     bass-studio\web\      the in-browser editor (served at / in desktop mode)
-REM     assets\              bundled example MIDIs (the asset library)
+REM     tab-studio\server\   backend (NO .venv, NO __pycache__) + vendored ADTOF weights
+REM     tab-studio\web\      the in-browser editor (served at / in desktop mode)
+REM     seed-projects\       starter projects (seeded into projects\ on first run)
 REM     models\              PRE-DOWNLOADED Demucs htdemucs weights (TORCH_HOME cache)
 REM     setup.bat            first-run installer (end user runs ONCE)
 REM     run.bat             launcher (end user double-clicks)
@@ -34,7 +34,7 @@ REM ===========================================================================
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 set "REL=%ROOT%\release"
-set "DEVPY=%ROOT%\bass-studio\server\.venv\Scripts\python.exe"
+set "DEVPY=%ROOT%\tab-studio\server\.venv\Scripts\python.exe"
 
 echo(
 echo === Studio release builder ===
@@ -43,14 +43,14 @@ echo Output    : %REL%
 echo(
 
 REM --- 0) sanity: source tree + dev venv (needed only to fetch model weights) ---
-if not exist "%ROOT%\bass-studio\server\app.py" (
-  echo ERROR: bass-studio\server\app.py not found. Run this from the repo root.
+if not exist "%ROOT%\tab-studio\server\app.py" (
+  echo ERROR: tab-studio\server\app.py not found. Run this from the repo root.
   goto :fail
 )
 if not exist "%DEVPY%" (
-  echo ERROR: developer venv not found at bass-studio\server\.venv
+  echo ERROR: developer venv not found at tab-studio\server\.venv
   echo        Create it first, then re-run release.bat:
-  echo          cd bass-studio\server
+  echo          cd tab-studio\server
   echo          python -m venv .venv
   echo          .venv\Scripts\pip install -r requirements.txt
   echo          .venv\Scripts\pip install basic-pitch --no-deps yt-dlp
@@ -70,26 +70,26 @@ mkdir "%REL%" || goto :fail
 
 REM --- 2) copy backend (server) WITHOUT .venv and __pycache__ ------------------
 REM    robocopy exit codes 0-7 are success; 8+ is a real failure.
-echo Copying backend (bass-studio\server)...
-robocopy "%ROOT%\bass-studio\server" "%REL%\bass-studio\server" /E /XD ".venv" "__pycache__" /XF "*.pyc" /NFL /NDL /NJH /NJS /NP >nul
+echo Copying backend (tab-studio\server)...
+robocopy "%ROOT%\tab-studio\server" "%REL%\tab-studio\server" /E /XD ".venv" "__pycache__" /XF "*.pyc" /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 goto :robofail
 
 REM --- 3) copy the web frontend ----------------------------------------------
-echo Copying web frontend (bass-studio\web)...
-robocopy "%ROOT%\bass-studio\web" "%REL%\bass-studio\web" /E /NFL /NDL /NJH /NJS /NP >nul
+echo Copying web frontend (tab-studio\web)...
+robocopy "%ROOT%\tab-studio\web" "%REL%\tab-studio\web" /E /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 goto :robofail
 
-REM --- 4) copy the asset library (example MIDIs) -----------------------------
-echo Copying assets...
-robocopy "%ROOT%\assets" "%REL%\assets" /E /NFL /NDL /NJH /NJS /NP >nul
+REM --- 4) copy the starter projects (seeded into projects\ on first run) -----
+echo Copying starter projects...
+robocopy "%ROOT%\seed-projects" "%REL%\seed-projects" /E /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 goto :robofail
 
 REM    Pin DESKTOP mode in the shipped config.js. The committed web\config.js
 REM    already defaults mode to 'desktop', so this seed is just an explicit
 REM    belt-and-suspenders header prepended in front of the normalizer.
-> "%REL%\bass-studio\web\config.js" (
+> "%REL%\tab-studio\web\config.js" (
   echo window.STUDIO_CONFIG = { mode: "desktop" };
-  type "%ROOT%\bass-studio\web\config.js"
+  type "%ROOT%\tab-studio\web\config.js"
 )
 
 REM --- 5) PRE-DOWNLOAD Demucs htdemucs weights into release\models -----------
@@ -124,11 +124,11 @@ echo Writing release\setup.bat ...
   echo title Studio - first-run setup
   echo(
   echo REM ===================================================================
-  echo REM setup.bat - run ONCE. Creates bass-studio\server\.venv and installs
+  echo REM setup.bat - run ONCE. Creates tab-studio\server\.venv and installs
   echo REM all Python deps. Needs internet for pip + the CUDA torch wheels.
   echo REM ===================================================================
   echo set "HERE=%%~dp0"
-  echo set "SRV=%%HERE%%bass-studio\server"
+  echo set "SRV=%%HERE%%tab-studio\server"
   echo set "PY=%%SRV%%\.venv\Scripts\python.exe"
   echo(
   echo REM --- Python on PATH? -------------------------------------------
@@ -214,7 +214,7 @@ echo Writing release\run.bat ...
   echo REM no network exposure, no auth/token, no tunnel. Opens your browser.
   echo REM ===================================================================
   echo set "HERE=%%~dp0"
-  echo set "SRV=%%HERE%%bass-studio\server"
+  echo set "SRV=%%HERE%%tab-studio\server"
   echo set "PY=%%SRV%%\.venv\Scripts\python.exe"
   echo(
   echo if exist "%%PY%%" goto :have_py

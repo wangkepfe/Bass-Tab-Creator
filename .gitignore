@@ -5,7 +5,7 @@ Thumbs.db
 .claude/
 .vscode/
 # python backend
-bass-studio/server/.venv/
+tab-studio/server/.venv/
 __pycache__/
 # scratch / generated
 _work/
@@ -15,3 +15,6 @@ projects/
 dist/
 release/
 studio-release.zip
+studio-web.zip
+# research harness — multi-GB datasets + model weights, not for git
+research/

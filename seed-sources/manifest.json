@@ -1,0 +1,23 @@
+{
+  "_comment": "Generation INPUT for the starter projects. build-seeds.js reads this + the .mid files here and writes seed-projects/<id>/project.json. These are not served or shipped; only the generated seed-projects/ folders are.",
+  "seeds": [
+    { "id": "seed-private-eyes", "name": "Private Eyes", "youtube": "https://www.youtube.com/watch?v=WvBUHHjtJw0", "tracks": [
+      { "file": "Private Eyes Bass.mid", "instrument": "bass" },
+      { "file": "Private Eyes Drums.mid", "instrument": "drums" }
+    ] },
+    { "id": "seed-too-many-kicks", "name": "Too Many Kicks", "youtube": "https://www.youtube.com/watch?v=0QqSZ5dZH7I", "tracks": [
+      { "file": "Too Many Kicks Bass.mid", "instrument": "bass" },
+      { "file": "Too Many Kicks Drums.mid", "instrument": "drums" }
+    ] },
+    { "id": "seed-too-many-kicks-live", "name": "Too Many Kicks Live Session 2020", "youtube": "https://www.youtube.com/watch?v=Nl1CRzSY0mM", "tracks": [
+      { "file": "Too Many Kicks Live Session 2020 Bass.mid", "instrument": "bass" },
+      { "file": "Too Many Kicks Live Session 2020 Drums.mid", "instrument": "drums" }
+    ] },
+    { "id": "seed-bolan-shanghai", "name": "波兰首都是上海", "youtube": "https://www.youtube.com/watch?v=0cq-7gxfMNY", "tracks": [
+      { "file": "波兰首都是上海 Bass.mid", "instrument": "bass" },
+      { "file": "波兰首都是上海 Drums.mid", "instrument": "drums" },
+      { "file": "波兰首都是上海 Guitar Rhythm.mid", "instrument": "guitar", "name": "Guitar (rhythm)" },
+      { "file": "波兰首都是上海 Guitar Lead.mid", "instrument": "guitar", "name": "Guitar (lead)" }
+    ] }
+  ]
+}

@@ -2,19 +2,22 @@
  * build.js — assemble dist/ for the WEB build (Cloudflare Workers static assets
  * or Pages). Node >= 18, zero dependencies.
  *
- * The web build is the OFFLINE editor + asset library: full in-browser editor,
- * no backend (no AI, no save). It is the desktop app's frontend with config.js
- * forced to mode='web'.
+ * The web build is the OFFLINE editor + bundled starter projects: full in-browser
+ * editor, no backend (no AI; projects persist as local .studio.json files). It is
+ * the desktop app's frontend with config.js forced to mode='web'.
  *
  *   dist/
- *     <web app files>     <- copied from bass-studio/web/
+ *     <web app files>     <- copied from tab-studio/web/
  *     config.js           <- generated: window.STUDIO_CONFIG = { mode: 'web' }
- *     assets/             <- the static "asset library" (MIDI/JSON only; see below)
+ *     seed/               <- the starter-project bundle (see below)
+ *       index.json        <-   the library list (same shape as GET /api/projects)
+ *       <id>.json         <-   each starter project (full project.json)
  *     _headers
  *
- * Asset library: only MIDI/JSON ship (audio is skipped to keep the deploy lean and
- * avoid publishing large/source media). Override with
- *   STUDIO_ASSET_EXTS=".mid,.midi,.json,.mp3"
+ * Starter projects: the web build has no backend, so its library is the static
+ * seed bundle generated from seed-projects/ (run tools/build-seeds.js to refresh
+ * those from their source MIDIs). The app opens them read-only and the user keeps
+ * edits via "Save file" (a downloaded .studio.json).
  * ========================================================================== */
 'use strict';
 const fs = require('fs');
@@ -22,11 +25,8 @@ const path = require('path');
 
 const ROOT = __dirname;
 const OUT = path.join(ROOT, 'dist');
-const WEB = path.join(ROOT, 'bass-studio', 'web');
-const ASSETS = path.join(ROOT, 'assets');
-
-const ASSET_EXTS = (process.env.STUDIO_ASSET_EXTS || '.mid,.midi,.json')
-  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const WEB = path.join(ROOT, 'tab-studio', 'web');
+const SEEDS = path.join(ROOT, 'seed-projects');
 
 function copyDir(src, dst, filter) {
   fs.mkdirSync(dst, { recursive: true });
@@ -42,10 +42,31 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 copyDir(WEB, OUT);
 
-// 2. asset library (MIDI/JSON by default — never the big/source audio)
-if (fs.existsSync(ASSETS)) {
-  copyDir(ASSETS, path.join(OUT, 'assets'),
-    name => ASSET_EXTS.includes(path.extname(name).toLowerCase()));
+// 2. starter-project bundle — the web build's library reads this static "seed"
+//    folder (it has no backend). Emits seed/<id>.json (full project) + a
+//    seed/index.json summary list with the SAME shape as GET /api/projects.
+let seedCount = 0;
+if (fs.existsSync(SEEDS)) {
+  const outSeed = path.join(OUT, 'seed');
+  fs.mkdirSync(outSeed, { recursive: true });
+  const index = [];
+  for (const e of fs.readdirSync(SEEDS, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const pj = path.join(SEEDS, e.name, 'project.json');
+    if (!fs.existsSync(pj)) continue;
+    const meta = JSON.parse(fs.readFileSync(pj, 'utf8'));
+    const id = meta.id || e.name;
+    fs.copyFileSync(pj, path.join(outSeed, id + '.json'));
+    const tracks = meta.tracks || [];
+    index.push({
+      id: id, name: meta.name || id, updated: meta.updated || 0,
+      youtubeUrl: meta.youtubeUrl || '', hasSong: !!meta.song,
+      instruments: tracks.map(t => t.instrument), trackCount: tracks.length,
+    });
+  }
+  index.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  fs.writeFileSync(path.join(outSeed, 'index.json'), JSON.stringify({ projects: index }));
+  seedCount = index.length;
 }
 
 // 3. config.js — force web mode (overwrites the committed mode='desktop' default).
@@ -62,14 +83,12 @@ fs.writeFileSync(path.join(OUT, '_headers'),
   Cache-Control: no-cache
 /config.js
   Cache-Control: no-store
-/assets/manifest.json
+/seed/*
   Cache-Control: no-cache
-/assets/*
-  Cache-Control: public, max-age=31536000, immutable
 `);
 // No _redirects file: a `/* /index.html 200` SPA rule is rejected by Cloudflare
 // Workers static assets as an "infinite loop". Unknown-path handling is done via
 // not_found_handling in wrangler.jsonc (Workers); a single-page app needs nothing
 // extra on Pages.
 
-console.log('Built dist/  mode=web  assetExts=' + ASSET_EXTS.join(','));
+console.log('Built dist/  mode=web  seedProjects=' + seedCount);
