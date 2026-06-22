@@ -2,22 +2,22 @@
  * build.js — assemble dist/ for the WEB build (Cloudflare Workers static assets
  * or Pages). Node >= 18, zero dependencies.
  *
- * The web build is the OFFLINE editor + bundled starter projects: full in-browser
- * editor, no backend (no AI; projects persist as local .studio.json files). It is
- * the desktop app's frontend with config.js forced to mode='web'.
+ * The web build is the OFFLINE editor + the bundled project library: full in-browser
+ * editor, no backend (no AI; the bundled projects open read-only and edits are kept
+ * via "Save file" — a downloaded .studio.json). It is the desktop app's frontend with
+ * config.js forced to mode='web'.
  *
  *   dist/
  *     <web app files>     <- copied from tab-studio/web/
  *     config.js           <- generated: window.STUDIO_CONFIG = { mode: 'web' }
- *     seed/               <- the starter-project bundle (see below)
+ *     projects/           <- the project-library bundle (see below)
  *       index.json        <-   the library list (same shape as GET /api/projects)
- *       <id>.json         <-   each starter project (full project.json)
+ *       <id>.json         <-   each project (full project.json)
  *     _headers
  *
- * Starter projects: the web build has no backend, so its library is the static
- * seed bundle generated from seed-projects/ (run tools/build-seeds.js to refresh
- * those from their source MIDIs). The app opens them read-only and the user keeps
- * edits via "Save file" (a downloaded .studio.json).
+ * The library is bundled from the committed projects/ folder — the SAME folder the
+ * desktop backend reads and writes in place, so an edit made on desktop is exactly
+ * what the web build ships.
  * ========================================================================== */
 'use strict';
 const fs = require('fs');
@@ -26,7 +26,7 @@ const path = require('path');
 const ROOT = __dirname;
 const OUT = path.join(ROOT, 'dist');
 const WEB = path.join(ROOT, 'tab-studio', 'web');
-const SEEDS = path.join(ROOT, 'seed-projects');
+const PROJECTS = path.join(ROOT, 'projects');
 
 function copyDir(src, dst, filter) {
   fs.mkdirSync(dst, { recursive: true });
@@ -42,21 +42,22 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 copyDir(WEB, OUT);
 
-// 2. starter-project bundle — the web build's library reads this static "seed"
-//    folder (it has no backend). Emits seed/<id>.json (full project) + a
-//    seed/index.json summary list with the SAME shape as GET /api/projects.
-let seedCount = 0;
-if (fs.existsSync(SEEDS)) {
-  const outSeed = path.join(OUT, 'seed');
-  fs.mkdirSync(outSeed, { recursive: true });
+// 2. project-library bundle — the web build has no backend, so it ships the committed
+//    projects/ folder as a static read-only library: projects/<id>.json (full project)
+//    + projects/index.json (same shape as GET /api/projects). Only each project.json is
+//    read; the per-project audio (stems/, song.*) is left out of the web build.
+let projectCount = 0;
+if (fs.existsSync(PROJECTS)) {
+  const outLib = path.join(OUT, 'projects');
+  fs.mkdirSync(outLib, { recursive: true });
   const index = [];
-  for (const e of fs.readdirSync(SEEDS, { withFileTypes: true })) {
+  for (const e of fs.readdirSync(PROJECTS, { withFileTypes: true })) {
     if (!e.isDirectory()) continue;
-    const pj = path.join(SEEDS, e.name, 'project.json');
+    const pj = path.join(PROJECTS, e.name, 'project.json');
     if (!fs.existsSync(pj)) continue;
     const meta = JSON.parse(fs.readFileSync(pj, 'utf8'));
     const id = meta.id || e.name;
-    fs.copyFileSync(pj, path.join(outSeed, id + '.json'));
+    fs.copyFileSync(pj, path.join(outLib, id + '.json'));
     const tracks = meta.tracks || [];
     index.push({
       id: id, name: meta.name || id, updated: meta.updated || 0,
@@ -65,8 +66,8 @@ if (fs.existsSync(SEEDS)) {
     });
   }
   index.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  fs.writeFileSync(path.join(outSeed, 'index.json'), JSON.stringify({ projects: index }));
-  seedCount = index.length;
+  fs.writeFileSync(path.join(outLib, 'index.json'), JSON.stringify({ projects: index }));
+  projectCount = index.length;
 }
 
 // 3. config.js — force web mode (overwrites the committed mode='desktop' default).
@@ -83,7 +84,7 @@ fs.writeFileSync(path.join(OUT, '_headers'),
   Cache-Control: no-cache
 /config.js
   Cache-Control: no-store
-/seed/*
+/projects/*
   Cache-Control: no-cache
 `);
 // No _redirects file: a `/* /index.html 200` SPA rule is rejected by Cloudflare
@@ -91,4 +92,4 @@ fs.writeFileSync(path.join(OUT, '_headers'),
 // not_found_handling in wrangler.jsonc (Workers); a single-page app needs nothing
 // extra on Pages.
 
-console.log('Built dist/  mode=web  seedProjects=' + seedCount);
+console.log('Built dist/  mode=web  projects=' + projectCount);

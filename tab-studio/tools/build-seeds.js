@@ -1,17 +1,16 @@
 /* ============================================================================
- * build-seeds.js — regenerate the starter projects (seed-projects/) from their
- * source MIDIs (seed-sources/).
+ * build-seeds.js — bootstrap projects into the project library (projects/) from
+ * their source MIDIs (seed-sources/ + manifest.json).
  *
- * These starter projects replace the old "examples": instead of bundling MIDIs
- * that the app loads read-only, we pre-bake each one into a real project.json
- * (the exact format a user gets by importing the MIDI and saving). On desktop the
- * backend copies them into projects/ on first run; the web build ships them as a
- * static read-only library. There is now only ONE kind of thing — a project.
+ * projects/ is the ONE committed folder of projects the desktop backend edits in
+ * place and the web build ships. This tool only CREATES projects that don't exist
+ * yet (it never overwrites), so a project you've since edited is never clobbered.
+ * Each project.json is pre-baked into the exact format a user gets by importing the
+ * MIDI and saving.
  *
  * Fidelity: this reuses the REAL frontend modules (midi-io / tempo-core /
  * drum-tab-core) and mirrors app.js's importMidiBytes() exactly, so the output is
- * byte-identical to a browser import+save (verified against a hand-made save:
- * same notes, drum events, tempo and gridOffset).
+ * byte-identical to a browser import+save (same notes, drum events, tempo, gridOffset).
  *
  *   run:  node tab-studio/tools/build-seeds.js
  * ========================================================================== */
@@ -22,7 +21,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..', '..');               // repo root
 const WEB = path.join(__dirname, '..', 'web');
 const SRC = path.join(ROOT, 'seed-sources');
-const OUT = path.join(ROOT, 'seed-projects');
+const OUT = path.join(ROOT, 'projects');
 
 const MidiIO = require(path.join(WEB, 'midi-io.js'));
 const TempoCore = require(path.join(WEB, 'tempo-core.js'));
@@ -87,18 +86,21 @@ function buildSeed(seed) {
 function main() {
   const manifest = JSON.parse(fs.readFileSync(path.join(SRC, 'manifest.json'), 'utf8'));
   const seeds = manifest.seeds || [];
-  // fresh OUT dir so removed seeds don't linger
-  fs.rmSync(OUT, { recursive: true, force: true });
   fs.mkdirSync(OUT, { recursive: true });
+  // NON-DESTRUCTIVE: only create projects that don't exist yet, so a project the
+  // user has since edited in place (projects/<id>/project.json) is never clobbered.
+  let made = 0, kept = 0;
   seeds.forEach(seed => {
+    const dir = path.join(OUT, seed.id), pj = path.join(dir, 'project.json');
+    if (fs.existsSync(pj)) { console.log('  keep  ' + seed.id + '  (already exists)'); kept++; return; }
     const proj = buildSeed(seed);
-    const dir = path.join(OUT, seed.id);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(proj), 'utf8');
+    fs.writeFileSync(pj, JSON.stringify(proj), 'utf8');
     const summary = proj.tracks.map(t => t.instrument + (t.kind === 'drum' ? '(' + t.events.length + ')' : '(' + t.notes.length + ')')).join(' ');
-    console.log('  ' + seed.id + '  ' + proj.name + '  [' + summary + ']');
+    console.log('  make  ' + seed.id + '  ' + proj.name + '  [' + summary + ']');
+    made++;
   });
-  console.log('Wrote ' + seeds.length + ' seed project(s) to ' + path.relative(ROOT, OUT));
+  console.log('build-seeds: ' + made + ' created, ' + kept + ' kept, in ' + path.relative(ROOT, OUT));
 }
 
 main();

@@ -3,11 +3,11 @@
  *
  *   mode 'desktop'  full app, served by the local FastAPI backend: the AI
  *                   pipeline (Demucs / basic-pitch / ADTOF / yt-dlp), plus the
- *                   on-disk project library (starter projects seeded on first run)
- *                   with auto-save.
+ *                   on-disk project library (the committed projects/ folder) with
+ *                   auto-save — edits persist in place and ship with the web build.
  *   mode 'web'      the static web build — the offline editor with the bundled
- *                   starter projects (read-only source, editable once opened). No
- *                   backend AI; projects persist as local .studio.json files the
+ *                   project library (read-only here, editable once opened). No
+ *                   backend AI; edits persist as local .studio.json files the
  *                   user saves/opens. build.js sets this when assembling dist/.
  *
  * The committed default is 'desktop', so local dev and the packaged desktop app

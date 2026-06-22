@@ -91,6 +91,7 @@ var BassTabView = (function () {
     var onSeekSeconds = opts.onSeekSeconds || function () {};
     var onStatus     = opts.onStatus     || null;
     var onChange     = opts.onChange     || null;
+    var onZoom       = opts.onZoom       || function () {};
     // Fretboard tuning — defaults to 4-string bass, but a 6-string guitar tuning
     // (BassTab.GUITAR_TUNING) can be passed; the renderer draws tuning.length string lines.
     var tuning       = opts.tuning       || BassTab.STD_TUNING;
@@ -117,6 +118,9 @@ var BassTabView = (function () {
     var lastSong = null;
     var lastSettings = null;
     var geom = { systems: [], grid: 1, spb: 1, ppq: 480, tempo: 120 };
+    var zoomFactor = 1;   // render scale: each system <svg> is sized W*zoom × H*zoom (vector-crisp)
+    var follow = opts.follow || function () { return true; };  // () => auto-scroll? (only while playing)
+    var lastFollowIdx = -1;   // page-flip only when the playhead enters a NEW row (no per-frame reflow)
 
     // playhead overlay (a single <line> moved between system <svg>s)
     var ph = null, phSvg = null;
@@ -177,6 +181,7 @@ var BassTabView = (function () {
       geom.tickShift = settings.tickShift || 0;   // tab is drawn shifted by this; playhead + seek must match
       geom.spb = r.layout.stepsPerBar;
       cacheSystems();
+      applyZoom();
 
       if (onStatus) onStatus(r.ergo);
     }
@@ -373,10 +378,34 @@ var BassTabView = (function () {
       });
     }
 
+    // ---- zoom (scale the SVG systems; vector text stays crisp) --------------
+    function applyZoom() {
+      geom.systems.forEach(function (m) {
+        m.el.style.width = (m.W * zoomFactor) + 'px';
+        m.el.style.height = (m.H * zoomFactor) + 'px';
+      });
+    }
+    function setZoom(z) { zoomFactor = Math.max(0.4, Math.min(3, +z || 1)); applyZoom(); onZoom(zoomFactor); }
+    function getZoom() { return zoomFactor; }
+    // ctrl/cmd + wheel zooms the tab; a plain wheel scrolls the staff as usual
+    function onWheel(e) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      setZoom(zoomFactor * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+    }
+    // page-flip follow: if the playhead's row isn't fully visible, jump the scroll
+    // window so the row sits near the top of the next "page" (browser clamps at the end).
+    function keepRowVisible(el) {
+      if (!container || !el) return;
+      var hostRect = container.getBoundingClientRect(), r = el.getBoundingClientRect();
+      var topIn = r.top - hostRect.top;
+      if (topIn < 0 || r.bottom - hostRect.top > container.clientHeight) container.scrollTop += topIn - 8;
+    }
+
     // ---- playhead ----------------------------------------------------------
     function detachPlayhead() {
       if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
-      phSvg = null;
+      phSvg = null; lastFollowIdx = -1;
     }
     // Position the playhead overlay at a project tick (tick<0 hides it). Maps the
     // tick -> system + x via the cached geometry. Does NOT re-render.
@@ -391,6 +420,8 @@ var BassTabView = (function () {
       if (phSvg !== m.el) { m.el.appendChild(ph); phSvg = m.el; }
       ph.setAttribute('x1', x.toFixed(1)); ph.setAttribute('x2', x.toFixed(1));
       ph.setAttribute('y1', '8'); ph.setAttribute('y2', (m.H - 6).toFixed(1));
+      // page-flip when the playhead enters a new row, only while actually playing
+      if (idx !== lastFollowIdx && follow()) { lastFollowIdx = idx; keepRowVisible(m.el); }
     }
 
     // ---- fingering overrides ----------------------------------------------
@@ -479,6 +510,7 @@ var BassTabView = (function () {
 
     container.addEventListener('click', onClick);
     container.addEventListener('contextmenu', onContextMenu);
+    container.addEventListener('wheel', onWheel, { passive: false });
     container.addEventListener('touchstart', onTouchStart, { passive: true });
     container.addEventListener('touchmove', onTouchMove, { passive: true });
     container.addEventListener('touchend', lpCancel, { passive: true });
@@ -507,6 +539,8 @@ var BassTabView = (function () {
       setOptions: setOptions,
       getOptions: getOptions,
       setPlayheadTick: setPlayheadTick,
+      setZoom: setZoom,
+      getZoom: getZoom,
       getAscii: function () { return lastResult ? lastResult.ascii : ''; },
       getOverrides: getOverrides,
       setOverrides: setOverrides,

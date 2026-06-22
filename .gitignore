@@ -9,8 +9,14 @@ tab-studio/server/.venv/
 __pycache__/
 # scratch / generated
 _work/
-# saved projects (the app's local database)
-projects/
+# project library — ONE folder of projects. project.json is committed (and shipped
+# in the web build); the heavy per-project audio + the runtime marker are not.
+projects/.seeded
+projects/*/stems/
+projects/*/song.*
+projects/*/*.wav
+projects/*/*.mp3
+projects/*/*.m4a
 # build output (regenerated): web build + packaged desktop release
 dist/
 release/

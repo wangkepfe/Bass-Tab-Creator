@@ -61,7 +61,9 @@
     getProject: function () { return roll.getProject(); },
     onSeekSeconds: function (s) { Transport.seekSeconds(s); },
     onStatus: function (ergo) { updateErgo(ergo); },
-    onChange: function () { scheduleSave(); }   // fingering override edits
+    onChange: function () { scheduleSave(); },   // fingering override edits
+    onZoom: function () { updateTabZoomPct(); },
+    follow: function () { return Transport.isRunning(); }   // page-flip only while playing
   });
   // Guitar Tab reuses the same fretted-instrument engine/renderer with a 6-string
   // standard tuning. Both tab views read the shared piano-roll notes (getProject).
@@ -70,6 +72,8 @@
     onSeekSeconds: function (s) { Transport.seekSeconds(s); },
     onStatus: function (ergo) { updateGuitarErgo(ergo); },
     onChange: function () { scheduleSave(); },
+    onZoom: function () { updateTabZoomPct(); },
+    follow: function () { return Transport.isRunning(); },
     tuning: BassTab.GUITAR_TUNING
   });
   // Guitar Chords (Tab Type 1): chord progression + diagram charts, detected from
@@ -166,6 +170,7 @@
     Array.prototype.forEach.call($('viewTabs').children, function (x) { x.classList.toggle('on', x.dataset.view === name); });
     show($('panePianoRoll'), name === 'pianoroll'); show($('paneBassTab'), name === 'basstab'); show($('paneGuitarTab'), name === 'guitartab'); show($('paneGuitarChords'), name === 'guitarchords'); show($('paneDrumTab'), name === 'drumtab');
     show($('toolsPianoRoll'), name === 'pianoroll'); show($('toolsBassTab'), name === 'basstab'); show($('toolsGuitarTab'), name === 'guitartab'); show($('toolsGuitarChords'), name === 'guitarchords'); show($('toolsDrumTab'), name === 'drumtab');
+    show($('tabZoom'), name === 'basstab' || name === 'guitartab'); updateTabZoomPct();
     Transport.setView(name);
     if (name === 'pianoroll') roll.redraw();
     else if (TAB_VIEWS[name]) TAB_VIEWS[name].render();
@@ -173,6 +178,24 @@
     refreshSrcButtons();
   }
   $('viewTabs').addEventListener('click', function (e) { var b = e.target.closest('.vtab'); if (b && !b.classList.contains('disabled')) setView(b.dataset.view); });
+
+  // ---- tab zoom (bass/guitar tab) + settings-toolbar show/hide ----
+  function activeTabView() { return currentView === 'basstab' ? bassTab : currentView === 'guitartab' ? guitarTab : null; }
+  function updateTabZoomPct() { var v = activeTabView(); if (v) $('tabZoomReset').textContent = Math.round(v.getZoom() * 100) + '%'; }
+  function tabZoomBy(mult) { var v = activeTabView(); if (!v) return; v.setZoom(mult === 0 ? 1 : v.getZoom() * mult); updateTabZoomPct(); }
+  $('tabZoomOut').onclick = function () { tabZoomBy(1 / 1.15); };
+  $('tabZoomIn').onclick = function () { tabZoomBy(1.15); };
+  $('tabZoomReset').onclick = function () { tabZoomBy(0); };
+  // collapse the per-view settings toolbar to give the workspace/tab more room (remembered)
+  $('btnSettings').onclick = function () {
+    var collapsed = document.body.classList.toggle('settings-collapsed');
+    this.classList.toggle('on', collapsed); this.setAttribute('aria-pressed', collapsed);
+    try { localStorage.setItem('studioSettingsCollapsed', collapsed ? '1' : ''); } catch (e) {}
+  };
+  (function () {
+    var on = false; try { on = !!localStorage.getItem('studioSettingsCollapsed'); } catch (e) {}
+    if (on) { document.body.classList.add('settings-collapsed'); var b = $('btnSettings'); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); }
+  })();
 
   /* ====================== tracks ====================== */
   function trackList() { return Object.keys(project.tracks).map(function (k) { return project.tracks[k]; }); }
@@ -542,9 +565,9 @@
     if (!confirmDiscard()) return;
     clearTimeout(saveTimer);
     if (WEB) {
-      // web build: the library is the static seed bundle (read-only source).
+      // web build: the library is the static projects/ bundle (read-only here).
       // Opened projects are editable in memory and saved back via "Save file".
-      fetch('seed/' + encodeURIComponent(id) + '.json', { cache: 'force-cache' })
+      fetch('projects/' + encodeURIComponent(id) + '.json', { cache: 'force-cache' })
         .then(function (r) { if (!r.ok || isHtml(r)) throw new Error('not found'); return r.json(); })
         .then(function (meta) { loadProjectMeta(meta, null); })
         .catch(function (e) { flash('Could not open project: ' + e.message); });
@@ -622,14 +645,14 @@
   function openLibrary() { $('libOverlay').style.display = ''; $('libSearch').value = ''; libLoaded = false; renderLibrary(); fetchProjects(); setTimeout(function () { $('libSearch').focus(); }, 30); }
   function closeLibrary() { $('libOverlay').style.display = 'none'; }
   // The library lists projects. Desktop reads them from the local backend; the web
-  // build reads the bundled starter projects from the static seed bundle (read-only
-  // source, editable once opened, saved back via "Save file").
+  // build reads them from the bundled static projects/ library (read-only here,
+  // editable once opened, saved back via "Save file").
   // isHtml: the SPA fallback (_redirects '/* /index.html 200') serves index.html
   // with HTTP 200 for a MISSING file — so a 200 alone doesn't mean it exists.
   // Reject HTML so a not-deployed bundle fails clearly instead of as JSON garbage.
   function isHtml(r) { return /text\/html/i.test(r.headers.get('content-type') || ''); }
   function fetchProjects() {
-    var url = WEB ? 'seed/index.json' : '/api/projects';
+    var url = WEB ? 'projects/index.json' : '/api/projects';
     fetch(url, { cache: WEB ? 'force-cache' : 'no-store' }).then(function (r) { return (r.ok && !isHtml(r)) ? r.json() : { projects: [] }; })
       .then(function (j) { libProjects = (j && j.projects) || []; libLoaded = true; renderLibrary(); })
       .catch(function () { libProjects = []; libLoaded = true; renderLibrary(); });
@@ -641,7 +664,7 @@
     if (!items.length) {
       var emptyMsg = !libLoaded ? 'Loading…'
         : libProjects.length ? 'No projects match.'
-        : WEB ? 'No starter projects bundled.'
+        : WEB ? 'No projects bundled.'
         : 'No saved projects yet — load a song, extract a track, then Save.';
       show($('libEmpty'), !!emptyMsg); $('libEmpty').textContent = emptyMsg;
       return;
@@ -657,8 +680,8 @@
       open.appendChild(nm); open.appendChild(meta);
       open.onclick = function () { openProject(p.id); };
       row.appendChild(open);
-      // Delete only applies to the desktop backend's saved projects; the web build's
-      // list is the read-only starter bundle (open + edit + Save file instead).
+      // Delete only applies to the desktop backend's library; the web build's list is
+      // read-only (open + edit + Save file instead).
       if (!WEB) {
         var del = document.createElement('button'); del.className = 'lib-del'; del.textContent = '🗑'; del.title = 'Delete project';
         del.onclick = function (e) { e.stopPropagation(); if (confirm('Delete project "' + (p.name || 'Untitled') + '"? This removes its saved audio + tracks.')) deleteProject(p.id); };
