@@ -103,15 +103,16 @@
       <button data-src="synth" title="Play the transcription (synth)">Synth</button>
     </span>
   </div>
-  <div class="grp">
+  <div class="grp settings-extra">
     <label class="inline">BPM <input type="number" id="bpmInput" min="20" max="320" value="120"></label>
     <label class="inline">time <input type="number" id="tsNum" min="1" max="32" value="4"><span class="dim">/</span><input type="number" id="tsDen" min="1" max="32" value="4"></label>
   </div>
   <div class="grp grow"></div>
   <div class="grp">
-    <button class="btn sm" id="btnQuantize" title="Quantize this track to a grid — swing · bias · strength (works for any instrument)">⊞ Quantize</button>
-    <button class="btn sm" id="btnOpenMidi" title="Import a .mid file as a track">Open MIDI</button>
-    <button class="btn sm" id="btnExportMidi" title="Download the current track's MIDI">Export MIDI</button>
+    <button class="btn sm settings-extra" id="btnQuantize" title="Quantize this track to a grid — swing · bias · strength (works for any instrument)">⊞ Quantize</button>
+    <button class="btn sm settings-extra" id="btnOpenMidi" title="Import a .mid file as a track">Open MIDI</button>
+    <button class="btn sm settings-extra" id="btnExportMidi" title="Download the current track's MIDI">Export MIDI</button>
+    <button class="icon sm" id="btnSettings" title="Show / hide the settings toolbar — more room for the tab" aria-pressed="false">⚙</button>
     <button class="icon sm" id="btnHelp" title="User guide (?)">?</button>
   </div>
 </div>
@@ -304,6 +305,12 @@
         <div class="drum-sheet" id="drumSheet"></div>
       </div>
     </div>
+  </div>
+  <!-- floating zoom for the bass / guitar tab — reachable even with the settings hidden -->
+  <div class="zoomctl" id="tabZoom" style="display:none">
+    <button class="zbtn" id="tabZoomOut" title="Zoom out  (Ctrl/⌘ + scroll)">−</button>
+    <button class="zbtn zpct" id="tabZoomReset" title="Reset zoom to 100%">100%</button>
+    <button class="zbtn" id="tabZoomIn" title="Zoom in  (Ctrl/⌘ + scroll)">+</button>
   </div>
 </div>
 
