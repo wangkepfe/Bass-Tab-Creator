@@ -86,6 +86,8 @@
 
 <!-- ============ VIEW TABS + TRANSPORT ============ -->
 <div class="viewbar">
+  <!-- ⚙ is the FIRST viewbar child so it never shifts when settings collapse/expand -->
+  <button class="icon sm" id="btnSettings" title="Show / hide the settings toolbar — more room for the tab" aria-pressed="false">⚙</button>
   <div class="viewtabs" id="viewTabs">
     <button class="vtab on" data-view="pianoroll" title="Edit the MIDI in a piano-roll">🎹 Piano Roll</button>
     <button class="vtab" data-view="basstab" title="Render the MIDI as a bass tab">🎸 Bass Tab</button>
@@ -112,7 +114,6 @@
     <button class="btn sm settings-extra" id="btnQuantize" title="Quantize this track to a grid — swing · bias · strength (works for any instrument)">⊞ Quantize</button>
     <button class="btn sm settings-extra" id="btnOpenMidi" title="Import a .mid file as a track">Open MIDI</button>
     <button class="btn sm settings-extra" id="btnExportMidi" title="Download the current track's MIDI">Export MIDI</button>
-    <button class="icon sm" id="btnSettings" title="Show / hide the settings toolbar — more room for the tab" aria-pressed="false">⚙</button>
     <button class="icon sm" id="btnHelp" title="User guide (?)">?</button>
   </div>
 </div>
